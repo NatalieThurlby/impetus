@@ -1,0 +1,1460 @@
+---
+title: "Self-Review Analysis"
+author: "Valentina Ragni + Lucas Nunes Vieira"
+date: "12/02/2021"
+output: html_document
+---
+
+# Introduction
+
+This R Markdown document describes our analysis for the self-review study.
+
+Contents:  
+- Study and dataset summary   
+- Data exclusion cases  
+- Variables of interest  
+- Descriptives, normality testing, data visualisation (keystrokes, record.duration)   
+- Correlation matrix  
+- First Model: DV = record duration (by-visit dataset)
+- First Model: DV = record duration (by-segment dataset)
+- Second Model: DV = keystrokes (by-visit dataset)     
+- Second Model: DV = keystrokes (by-segment dataset)       
+- Edit distance analysis
+
+# Loading packages
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(glue)
+library(corrplot)
+library(e1071)
+library(stats)
+library(ggplot2)
+library(ggeffects)
+library(lme4)
+library(lmerTest)
+library(optimx)
+library(lattice)
+library(car) 
+library(stringdist)
+library(readr)
+library(doBy)
+```
+
+# The study and the dataset
+
+This study looks at the process of reviewing one's own translations. We are interested in how editing machine translation v. drafting the translation from scratch might change a subsequent self-review step.
+
+The study had 48 participants and 60 segments that were translated from English into three target languages: Spanish (ES), German (DE) and Russian (RU). A **segment** is the unit of translation in all major CAT (computer-assisted translation) software and usually corresponds to a sentence. The segments derived from four text excerpts:
+
+Text 1: 14 segments (no. 1-14)  
+Text 2: 17 segments (no. 15-31)  
+Text 3: 13 segments (no. 32-44)  
+Text 4: 16 segments (no. 45-60)  
+
+All texts were extracted from the same document, a government paper on transport energy. The overall study includes two factors of interest:
+
+- from-scratch translation (T) v post-editing of machine translation (P)
+- separate self-review (R) v no separate self-review
+
+Each participant worked on all four texts, but in different conditions. In total, there were six tasks per participant: two from-scratch translation (T), two post-editing (P) and two self-review (R) tasks. We counterbalanced the order of presentation of texts and conditions over participants in a Latin square design. Our self-review tasks consituted a separate step in the workflow where we sent for self-review the text translators had delivered in an immediately preceding T or P task. We sent self-review tasks to translators one day after the preceding task had been delivered (in two cases this interval was just under 24 hours: P2_R1_5 and P8_R4_2). The procedure above was replicated across the three target languages, with 16 translators per language.
+
+In task-participant notations like **"P2_R1_5"**, the first cluster (e.g. P2) always indicates participant number, the middle one the type of task and the text (e.g. R1 = self-review of text 1), and the last number is task order (e.g. task 5 of 6).
+
+
+Here we analyse just the tasks where translators self-reviewed their work (R), which is a subset of our master dataset.
+
+In most experiments in Translation Studies and Machine Translation, data analysis is carried out at the segment level. Here we adopt a more granular approach by collecting and analysing the data at the segment visit level, which retains the sequence and frequency with which participants visited each segment. This makes any within-task learning and fatigue effects easier to model.
+
+First, we import and explore the visit-level dataset for analysis. 
+
+```{r, eval=FALSE}
+reviewdf <- read.csv("reviewdf_complete.csv", header=T, sep=",", stringsAsFactors = T)
+
+glimpse(reviewdf)
+names(reviewdf)
+str(reviewdf)
+
+```
+
+
+The self-review data has 2494 observations and 26 variables. Since the present dataset has just the self-review tasks, all instances of the "task.type" variable (originally "T", "P" and "R") = "R". 
+
+# Errors and data exclusions
+
+Data collection errors forced us to exclude spurious data points from the analysis. This was required in relation to two categories of errors: when participants did not follow the experiment instructions (participant errors) and when there were glitches with 'Qualitivity', the data collection tool used in the study (recording errors), which is a plugin for translation software Trados Studio.
+
+##Participant errors
+
+We excluded data/tasks because of participant errors only if: 
+
+(1) the task was done **in two sittings** rather than one (e.g. half today, half tomorrow); 
+(2) the participant **copy-pasted** large chunks of text (one or more sentences, not single words or phrases) from an external source (e.g. Google Translate, Deep L or similar) in a systematic way at the beginning of the translation process in T tasks;  
+(3) the reports submitted were for the **wrong task**.
+
+Disregaring these cases is required either because the data was unavailable to begin with (e.g. 3) or because the error is expected to change the nature of the task (1-2). Working on the same text twice in two sittings (1) is different from doing the task 'for the first time' and would impinge on the reliability of the data. In relation to (2), in some instances there was evidence of machine translation use in the task condition where participants were supposed to translate the text from scratch. Excluding these cases is required because this risks eliminating the difference between from-scratch translation (T) and post-editing (P), two conditions of interest in the study. We only excluded these cases where, in the T condition, full target-language sentences were copy-pasted from an external source and subsequently edited and where this happened more than once in the same task. Exclusions linked to errors 1-3 are outlined below.
+
+
+###Error (1)
+
+We exclude one self-review task from **P22** ("P22_R2_2") because of error (1)
+
+```{r}
+nrow(reviewdf[reviewdf$file.id == "P22_R2_2.csv", ]) # 16 rows of data to exclude
+
+reviewdf<-subset(reviewdf, file.id != "P22_R2_2.csv")
+```
+
+
+###Error (2)
+
+We exclude five tasks from five different participants because of error (2)
+
+```{r}
+nrow(reviewdf[reviewdf$file.id == "P4_R3_5.csv", ]) # 15 rows to exclude
+nrow(reviewdf[reviewdf$file.id == "P19_R2_5.csv", ]) # 19 rows to exclude
+nrow(reviewdf[reviewdf$file.id == "P48_R4_2.csv", ]) # 12 rows to exclude
+nrow(reviewdf[reviewdf$file.id == "P17_R4_5.csv", ]) # 86 rows to exclude
+nrow(reviewdf[reviewdf$file.id == "P22_R4_6.csv", ]) # 8 rows to exclude
+reviewdf<-subset(reviewdf, file.id != "P4_R3_5.csv" & file.id != "P19_R2_5.csv" & file.id != "P48_R4_2.csv" & file.id != "P17_R4_5.csv" & file.id != "P22_R4_6.csv")
+```
+
+**NOTE**: Because both R tasks for P22 have to be excluded , this results in 47 rather than 48 participants for analysis.
+
+###Error (3)
+
+We exclude one review task from **P20** ("P20_R1_3") because of error (3)
+
+```{r}
+nrow(reviewdf[reviewdf$file.id == "P20_R1_3.csv", ]) # 11 rows of data to exclude
+reviewdf<-subset(reviewdf, file.id != "P20_R1_3.csv")
+
+new_nrow <- nrow(reviewdf)
+
+print(glue("After the above exclusions, {new_nrow} observations remain"))
+```
+
+##Recording errors
+
+We exclude data points where **record.duration = 0**. These records are generated automatically by Qualitivity but they contain no data, so they were eliminated.
+
+```{r}
+nrow(reviewdf[reviewdf$record.duration == 0, ])  # 7 rows of data to exclude
+reviewdf<-subset(reviewdf, record.duration != 0)
+
+new_nrow <- nrow(reviewdf)
+
+print(glue("After the above exclusions, {new_nrow} observations remain"))
+```
+
+We check for further potentially problematic data points below.
+
+First we check for all rows where **record.duration > 300,000** and **keystrokes = 0**. These are instances where a participant stays inside a segment for more than 5 minutes (300,000 milliseconds) but there is no typing activity. If the timer was set up according to the study instructions, then Qualitivity should pause the timer after 5 minutes of inactivity, where 'inactivity' is the absence of any typing or clicking. Any inactivity periods longer than 5 minutes in the data are therefore either due to (a) a Qualitivity glitch/bug or (b) failing to set up Qualititvity as per the study instructions. 
+
+```{r}
+nrow_inactive <- nrow(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ])
+max_inactive <- max(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ]$record.duration)
+mean_inactive <- mean(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ]$record.duration)
+
+print(glue("We find {nrow_inactive} data points corresponding to more than 5 minutes of inactivity. The longest single period of inactivty among these had {max_inactive/60000} minutes. The mean period of inactivity for records above 5 minutes is {mean_inactive/60000} minutes"))
+
+```
+Although long periods of inactivity could correspond to task breaks, we did not deem these cases long enough to warrant excluding the data. Translators could be carrying out research for passages that were difficult to translate, for instance. In the absence of stronger evidence that the task had indeed been interrupted in these cases, we adopt an inclusive rather than an exclusive approach and retain these data points. 
+
+Based on our tests with Qualitivity, we note an **artificial record** is often generated at the outset of every task. This is an extremely short segment visit that is in fact part of a (longer) visit to the same segment. In these cases, keystrokes = 0, segment.id = 1 and all pause variables = 0. The minimum pause duration considered in the study is 300 milliseconds. So if the pause variables = 0, that means the duration for the segment is very short (i.e. below 300ms). We check the dataset for all such cases.  
+
+```{r}
+system_records <- nrow(reviewdf[reviewdf$keystrokes == 0 & reviewdf$pause.count_300 == 0 & reviewdf$segment.id == 1, ])
+
+print(glue("The dataset contains {system_records} records artificially generated by Qualitivity."))
+```
+We retain these artificially generated records because they contain some temporal information about the task, even if minimal. This is in line with our inclusive approach to the data inspection. 
+
+##Other observations or cases to note
+
+In self-review tasks, although translators are expected to read through the whole text to implement further improvements where possible, they might not make changes to all segments, but only to those that still contain errors or can be further improved. What creates a record (row of data) in a Qualitivity report is clicking inside a segment (or pressing CTRL + ENTER which 'confirms' the current segment and moves the cursor to the next), so if a translator reads a segment but does not click on it or confirm it, no record for that segment will appear in the report.  In most cases, therefore, missing segments reflected the participants' usual Trados Studio use behaviour. Some participants only confirmed segments during self-review in cases where they had edited the segment.  In other cases, participants failed to confirm just one or two segments during self-review, usually when these were repetitions. We therefore do not exclude any data purely on the basis that some text segments had not been recorded.
+
+We also note that the variable “record.id” was re-indexed in four tasks. Re-indexing involved re-coding "record.id" so that every task started from record 1. We did this manually for "P7_R3_2", "P37_R1_2", "P31_R1_6" and "P31_R3_2". In these four cases, the participant returned to the same project used for the previous (T or P) task to carry out the self-review step. Unlike in the rest of the data therefore "record.id" did not start from 1 in these cases.  
+
+
+# Variables of interest
+
+##Dependent or outcome variables
+
+As per previous research, we are interested in all three dimensions of effort in the self-review task: temporal, cognitive and technical (Krings 2001). We select pause count (`pause.count_300`) as a proxy for cognitive effort (e.g. Toral et al. 2018). As mentioned above, we adopt 300 milliseconds as our minimum pause duration (Lacruz et al. 2014). Our measure of temporal effort is `record.duration` and our measure of technical effort if the keystroke count for each segment visit (`keystrokes`). 
+
+1. `record.duration` =  Time spent inside a segment in each segment visit, measured in milliseconds (numerical continuous variable, no zero values).  
+2. `keystrokes` = Number of keystrokes occurring in each segment visit (numberical integer variable). Typically, in a review task there is a lot of reading and re-reading but not necessarily as much typing, so we have several cases where `keystrokes` = 0 in the present dataset.   
+3. `pause.count_300` = Number of pauses in typing where the minimum pause duration is 300 milliseconds. 
+
+We are also interested in the average duration of pauses. Here we use this variable for descriptive purposes only as previous research (Vieira 2016) has shown average pause duration variables to be less reliable than pause counts, and this variable can be inversely correlated with other effort measures, for example with longer pauses, but lower effort in post-editing as opposed to from-scratch translation (e.g. Toral et al. 2018).
+
+4. `mean.pause.dur_300` = Mean duration of pauses in typing, where the minimum pause duration is 300 milliseconds.
+
+##Predictor variables and controls
+
+We have one predictor of interest:
+
+1. `pre.review.task`: Categorical variable with 2 levels (T and P). Self-review tasks always occurred on a text that had been previously translated from scratch (T) or post-edited (P). This variable therefore represents the type of task a translator worked on before the review. 
+
+We have three control variables:
+
+1. `lang`: Language, categorical variable with 3 levels (Spanish, German, Russian). These languages have different syntactic structures and tend to result in different target text lengths compared to the source texts (for example, a Spanish translation of an English text is usually longer in terms of word count). Moreover, the quality of the machine translation might change between languages. Therefore, there may be differences in review behaviour depending on the language. Since we pooled data from all three languages, we include this variable in any models to account for these possible differences.
+
+2. `ST.segm.char`: Segment length (in characters, including spaces). This is a numerical variable ranging from a minimum of 8 to a maximum of 282 characters (1-43 words). In our study, we strictly controlled the texts, such that they would all have approximately the same length (around 300 words) and be equivalent in terms of various measures, e.g. lexical density and syntactic complexity. This operation was carried out at text level, not at segment level. Once the 4 texts were chosen, they were imported into the CAT tool 'Trados Studio', which divides them into segments. The length of these segments was not controlled for a priori, and  varies in all four texts. For example, each text has a title (and sometimes a sub-title), which tends to be very short (typically 1-3 words), as well as short and long sentences (segments). We include this variable in any models to account for any effect that segment/sentence length alone is likely to have on the outcome variable.
+
+3. `record.id`: The ID for each time a participant visited any segment. A **record** is a row in the dataset. This variable reflects the sequence in which particiants visited any segments during the task, so it can reflect potential within-task habituation effects. For example, let’s assume a participant makes 30 segment visits in a self-review task. If that participant has comparatively longer visits happening at the beginning of the task (record.id 1-15) and shorter visits at the end (record.id 15-30), this could be taken as a proxy for a within-task effect of habituation/practice.
+
+
+<!-- **Question for Natalie**: is it OK in principle to add by-participant random slopes for language to the model? Participants are nested within language - does this constitute an issue? -->
+
+# Descriptives and Normality Testing
+
+We produce descriptives for outcome variables 1-4.    
+
+## Keystrokes - plots 
+```{r}
+ggplot(reviewdf, aes(x=keystrokes)) + geom_density() #density
+ggplot(reviewdf, aes(x = as.numeric(row.names(reviewdf)),y=keystrokes)) + geom_point() #scatterplot
+ggplot(reviewdf, aes(sample=keystrokes))+stat_qq() + stat_qq_line(color="red") + ggtitle("Q-Q Plot for Keystrokes (Self-Review)") #Q-Q plot
+```
+  
+Keystroke data is not scattered and looks extremely skewed. Most data is concentrated to the left in the density plot and is therefore right-skewed (positive skew). The Q-Q plot shows data points depart visibly and steeply from the normality line.
+
+## Keystrokes - Summary Statistics 
+```{r}
+summary(reviewdf$keystrokes)
+nrow(reviewdf[reviewdf$keystrokes == 0, ]) #no. of visits with no typing
+sd(reviewdf$keystrokes) # Standard Deviation
+var(reviewdf$keystrokes)  # Variance
+sd(reviewdf$keystrokes)/sqrt(length(reviewdf$keystrokes)) # Standard Error of the Mean (SEM)
+sum((reviewdf$keystrokes - mean(reviewdf$keystrokes))^2) # Sum of Squared errors (SS)
+
+```
+
+Mean and median are not very close, which usually suggests non-normality. The median is 0 keystrokes, so there was no typing during at least half the segment visits (1540 records). Variance and standard deviation (square root of the variance) seem quite high. The Standard Error of the Mean (SEM) computes deviations from the mean. The Sum of Squared errors (SS) seems particularly high. 
+
+## Keystrokes - Skewness, Kurtosis, and Shapiro-Wilk Test
+```{r}
+
+skewness(reviewdf$keystrokes)
+kurtosis(reviewdf$keystrokes)
+shapiro.test(reviewdf$keystrokes)
+```
+
+The skew level is above 6, so normality is violated. The high levels of kurtosis (a measure of the breadth and peak of the normality curve) confirms that the curve for the keystroke data is narrow and very pointy. A formal normality test confirms non-normality (W = 0.37182, p-value < 0.005).
+
+## Record Duration - Plots
+```{r}
+
+ggplot(reviewdf, aes(x=record.duration)) + geom_density() #density
+ggplot(reviewdf, aes(x = as.numeric(row.names(reviewdf)),y=record.duration)) + geom_point() #scatterplot
+ggplot(reviewdf, aes(sample=record.duration))+stat_qq() + stat_qq_line(color="red") + ggtitle("Q-Q Plot for Record Duration (Self-Review)") #Q-Q plot
+
+```
+  
+Record duration data is not scattered. The data is right-skewed (positive skew), and data points depart steeply from the normality line. 
+
+## Record Duration - Summary Statistics
+```{r}
+summary(reviewdf$record.duration)
+sd(reviewdf$record.duration) # Standard Deviation
+var(reviewdf$record.duration)  # Variance
+sd(reviewdf$record.duration)/sqrt(length(reviewdf$record.duration)) # Standard Error of the Mean (SEM)
+sum((reviewdf$record.duration - mean(reviewdf$record.duration))^2) # Sum of Squared errors (SS)
+```
+
+Mean and median are very far apart. The min and max values point to a very wide data range (from 1ms to 818070ms). The maximum duration 818070ms (818 sec) is equivalent to spending roughly 14 minutes (00:13:38) in a single segment visit. Variance and standard deviation seem very high. The Standard Error of the Mean (SEM) computes deviations from the mean and also seems high, like the sum of Squared errors (SS).
+
+## Record Duration - Skewness, Kurtosis, and Shapiro-Wilk Test
+```{r}
+skewness(reviewdf$record.duration)
+kurtosis(reviewdf$record.duration)
+shapiro.test(reviewdf$record.duration)
+```
+
+The variable record.duration is positively skewed (skew above 4) and has a high level of kurtosis (above 22). Normality is violated. The Shapiro-Wilk test confirms non-normality (W = 0.555, p-value < 0.005).
+
+
+## Pause count - plots 
+```{r}
+
+ggplot(reviewdf, aes(x=pause.count_300)) + geom_density() #density
+ggplot(reviewdf, aes(x = as.numeric(row.names(reviewdf)),y=pause.count_300)) + geom_point() #scatterplot
+ggplot(reviewdf, aes(sample=pause.count_300))+stat_qq() + stat_qq_line(color="red") + ggtitle("Q-Q Plot for Record Duration (Self-Review)") #Q-Q plot
+
+```
+
+Pause count data is not scattered. Most data is concentrated to the left in the density plot and is therefore right-skewed. The Q-Q plot shows data points depart visibly and steeply from the normality line.
+
+
+## Pause count - Summary Statistics
+```{r}
+summary(reviewdf$pause.count_300)
+nrow(reviewdf[reviewdf$pause.count_300 == 0, ]) 
+nrow(reviewdf[reviewdf$pause.count_300 == 1, ]) 
+reviewdf %>%
+group_by(pause.count_300) %>%
+tally() # 1 pause by far the most common occurrence
+sd(reviewdf$pause.count_300) # Standard Deviation
+var(reviewdf$pause.count_300)  # Variance
+sd(reviewdf$pause.count_300)/sqrt(length(reviewdf$pause.count_300)) # Standard Error of the Mean (SEM)
+sum((reviewdf$pause.count_300 - mean(reviewdf$pause.count_300))^2) # Sum of Squared errors (SS)
+
+```
+
+Mean and median are not very close. The most common number of pauses per segment visit is by far 1 (i.e. visits with no tying where the full visit is a pause). There are also 114 segment visits where no pauses occurred (i.e. where interruptions or the full visit duration is below 300ms). The max number of pauses made in a single segment visit is 99. The lower and upper quartile values confirm that, despite the wide data range, visits consist of 1-2 pauses for the most part. The pause data is unlikely to have an approximately normal distribution.
+
+
+## Pause count - Skewness, Kurtosis, and Shapiro-Wilk Test
+
+```{r}
+skewness(reviewdf$pause.count_300)
+kurtosis(reviewdf$pause.count_300)
+shapiro.test(reviewdf$pause.count_300)
+```
+The variable pause.count_300 is positively skewed (skew above 5) and has a very high level of kurtosis (above 50). Normality is violated. The Shapiro-Wilk test confirms non-normality (W = 0.41501, p-value < 0.01).
+
+
+## Mean pause duration - plots 
+
+```{r}
+ggplot(reviewdf, aes(x=mean.pause.dur_300)) + geom_density(na.rm = TRUE) #density
+ggplot(reviewdf, aes(x = as.numeric(row.names(reviewdf)),y=mean.pause.dur_300)) + geom_point(na.rm = TRUE) #scatterplot
+ggplot(reviewdf, aes(sample=mean.pause.dur_300))+stat_qq(na.rm = TRUE) + stat_qq_line(color="red", na.rm = TRUE) + ggtitle("Q-Q Plot - Mean Pause Duration (Self-Review)") #Q-Q plot
+
+#We use na.rm = TRUE to remove NA's (n=144) from `mean.pause.dur_300`. These were records where durations were shorter than 300 ms and therefore were not considered pauses as per our minimum threshold. 
+
+```
+
+Mean pause duration data is not scattered and looks skewed. Most data is concentrated to the left in the density plot and is therefore right-skewed. The Q-Q plot shows data points depart visibly and steeply from the normality line.
+
+## Mean pause duration - Summary Statistics
+
+```{r}
+summary(reviewdf$mean.pause.dur_300)
+
+mean.pause.dur_300noNAs <- reviewdf$mean.pause.dur_300[!is.na(reviewdf$mean.pause.dur_300)] #Saving a vector without the NAs.
+
+sd(mean.pause.dur_300noNAs) # Standard Deviation
+var(mean.pause.dur_300noNAs)  # Variance
+sd(mean.pause.dur_300noNAs)/sqrt(length(mean.pause.dur_300noNAs)) # Standard Error of the Mean (SEM)
+sum((mean.pause.dur_300noNAs - mean(mean.pause.dur_300noNAs))^2) # Sum of Squared errors (SS)
+
+```
+Mean and median are very far apart. Variance and standard deviation seem very high. The Standard Error of the Mean (SEM) computes deviations from the mean and also seems high, like the sum of Squared errors (SS).
+
+## Mean pause duration - Skewness, Kurtosis, and Shapiro-Wilk Test
+
+```{r}
+skewness(mean.pause.dur_300noNAs)
+kurtosis(mean.pause.dur_300noNAs)
+shapiro.test(mean.pause.dur_300noNAs)
+```
+
+The Shapiro-Wilk test confirms that normality is violated (W = 0.42253, p-value < 0.01).
+
+
+## Boxplots
+
+We visualise outcome variables 1-4 in boxplots showing the difference between translation (T) and post-editing (P) as the task that preceded the self-review. 
+
+### Normalisation and transformations
+
+First we normalise `pause.count_300`, `record.duration` and `keystrokes` by the length of source segments (`ST.segm.char`) to account for any effects of segment length alone. To aid visualisation in the boxplots, we transform all variables by taking the square root of normalised `keystrokes` and `pause.count_300` and the logs of normalised `record.duration` and of `mean.pause.dur_300`. As a mean variable, `mean.pause.dur_300` is normalised by default so we do not divide it by `ST.segm.char`. 
+
+``` {r}
+
+#Keystrokes
+reviewdf<-within(reviewdf, ks.norm.sqrt<-sqrt(reviewdf$keystrokes/reviewdf$ST.segm.char))
+summary(reviewdf$ks.norm.sqrt)
+
+#Pause count
+reviewdf<-within(reviewdf, pause.norm.sqrt<-sqrt(reviewdf$pause.count_300/reviewdf$ST.segm.char))
+summary(reviewdf$pause.norm.sqrt)
+
+#Record duration
+reviewdf<-within(reviewdf, record.dur.norm.log <-log(reviewdf$record.duration/reviewdf$ST.segm.char))
+summary(reviewdf$record.dur.norm.log)
+
+#Pause duration
+reviewdf<-within(reviewdf, pause.dur.log <-log(reviewdf$mean.pause.dur_300))
+summary(reviewdf$pause.dur.log)
+
+```
+
+###Plots
+```{r}
+
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+
+ggplot(reviewdf, aes(x=pre.review.task,y=ks.norm.sqrt,color=pre.review.task))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Keystrokes per source character (sqrt)")
+
+ggplot(reviewdf, aes(x=pre.review.task,y=pause.norm.sqrt,color=pre.review.task))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Pauses per source character (sqrt)")
+
+ggplot(reviewdf, aes(x=pre.review.task,y=record.dur.norm.log,color=pre.review.task))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Milliseconds per source character (log)")
+
+ggplot(reviewdf, aes(x=pre.review.task,y=pause.dur.log,color=pre.review.task))+geom_boxplot(na.rm = TRUE)+scale_colour_manual(values=cbPalette) + ylab("Mean pause duration in milliseconds (log)") 
+
+```
+
+For all variables, there is little difference between the two conditions. The zero-inflated nature of keystrokes means that the median (the horizontal line in the middle of the boxes) is zero for both P and T as pre-review tasks. Record duration and mean pause duration seem to be higher when the pre-review task was T, but only slightly.
+
+##Means and Medians
+
+We compare means and medians between the T and P pre-review task conditions after normalising the variables by segment length where applicable.
+```{r}
+
+#Keystrokes
+reviewdf %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_ks = mean(keystrokes/ST.segm.char), sd_ks = sd(keystrokes/ST.segm.char), median_ks =  median(keystrokes/ST.segm.char))
+
+#Record duration
+reviewdf %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_record.dur = mean(record.duration/ST.segm.char), sd_record.dur = sd(record.duration/ST.segm.char), median_record.dur = median(record.duration/ST.segm.char))
+
+#Pause count
+reviewdf %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_pause.count = mean(pause.count_300/ST.segm.char), sd_pause.count = sd(pause.count_300/ST.segm.char),  median_pause.count = median(pause.count_300/ST.segm.char))
+
+#Mean pause duration
+reviewdf %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_pause.dur = mean(mean.pause.dur_300, na.rm=TRUE), sd_pause.dur = sd(mean.pause.dur_300, na.rm=TRUE),  median_pause.dur = median(mean.pause.dur_300, na.rm=TRUE)) #We again remove NA's from this variable and don't divide it by characters as this variable is already normalised since it is the mean
+
+```
+The medians show that record duration (per character) and mean pause duration was higher when the self-review followed a T task. As also shown in the boxplots, there is no appreciable difference between the two conditions in relation to keystrokes and pause count, which may be linked to the zero-inflated nature of the data. 
+
+
+For exploratory purposes, we remove records without any keystrokes, to consider pauses and keystrokes only in records where the keyboard was used.
+```{r}
+#Keystrokes
+reviewdf[reviewdf$keystrokes > 0,] %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_ks = mean(keystrokes/ST.segm.char), sd_ks = sd(keystrokes/ST.segm.char), median_ks =  median(keystrokes/ST.segm.char))
+
+#Pause count
+reviewdf[reviewdf$keystrokes > 0,] %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_pause.count = mean(pause.count_300/ST.segm.char), sd_pause.count = sd(pause.count_300/ST.segm.char),  median_pause.count = median(pause.count_300/ST.segm.char))
+
+```
+Removing records without any keystrokes does not make a difference. The mean and median for pauses and keystroke count is largely the same whether the task preceding the self-review was T or P.
+
+##Correlation matrix
+
+We inspect the correlation matrix for our three effort proxies considered for modelling, namely `pause.count_300`, `keystrokes`, and `record.duration`.
+```{r}
+dfcorrmatrix <- subset(reviewdf, select=c(pause.count_300,keystrokes,record.duration))
+cor(dfcorrmatrix)
+cor(dfcorrmatrix, method="kendall")
+```
+
+Keystrokes and pause count are highly correlated. Modelling both of them as outcome variables would ideally require a multivariate analysis to reduce redundancy and the chance of Type-I errors. Of these two, we select keystrokes for mixed-effects modelling as the more directly observable variable from which pauses are derived. We also select record.duration, which had low to moderate correaltions with the others.
+
+# RECORD DURATION MODELLING 
+
+##Fixed effects
+
+All variables listed above under ##Predictor variables and controls
+
+##Random effects
+The two grouping factors are:
+
+`subj` = the participant IDs, a factor with 47 levels
+`unique.segm.id` = the IDs for each source segment used in the study, which is a factor despite the numerical labels. We turn this variable from an integer into a factor before fitting the models.
+
+```{r}
+reviewdf$unique.segm.id_fctr <- factor(reviewdf$unique.segm.id)
+class(reviewdf$unique.segm.id_fctr)
+```
+
+##Outcome variable (DV)
+From previous descriptive analyses, we know that "record.duration" is not normally distributed. We log-transform it to help correct the skew in the data.
+
+```{r}
+reviewdf$record.dur.log <- log(reviewdf$record.duration)
+head(reviewdf$record.dur.log)
+summary(reviewdf$record.dur.log)
+
+ggplot(reviewdf, aes(x=reviewdf$record.dur.log)) + geom_density() #density
+ggplot(reviewdf, aes(x = as.numeric(row.names(reviewdf)),y=reviewdf$record.dur.log)) + geom_point() #scatterplot
+ggplot(reviewdf, aes(sample=reviewdf$record.dur.log))+stat_qq() + stat_qq_line(color="red") + ggtitle("Q-Q Plot for Record Duration (Self-Review)") #Q-Q plot
+
+shapiro.test(reviewdf$record.dur.log)
+```
+Although the Shapiro test shows that the transformed variable is still not normal, the plots and summary statistics show the variable is more approximately normal after the tansformation. The mean and median are now very close (both around 9), and the desnity plot shows that data points are no longer concentrated to the left near the y-axis, even if now there is a slight left skew.
+
+##Rescaling
+To avoid issues during modelling due to the variables being measured on widely different scales, we rescale the two numerical predictors in the model `ST.segm.char` and `record.id`. Doing so adds two more columns (`segm.char_scaled`, `record.id_scaled`) to the data set.
+
+```{r}
+reviewdf$ST.segm.char_scaled <- scale(reviewdf$ST.segm.char)
+class(reviewdf$ST.segm.char_scaled)
+head(reviewdf$ST.segm.char_scaled)
+
+reviewdf$record.id_scaled <- scale(reviewdf$record.id)
+class(reviewdf$record.id_scaled)
+head(reviewdf$record.id_scaled)
+```
+
+##Mixed-effect modelling
+
+We fit LMER models because record.duration is a continuous variable. We use the log-transformed record duration variable as the DV.
+
+We start with an intercept-only model.
+
+```{r}
+
+mod1<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+                (1|subj) + (1|unique.segm.id_fctr), data = reviewdf)
+summary(mod1)
+
+```
+
+We inspect possible differential effects of key variables on each individual participant. 
+
+###Visualising `pre.review.task`
+`pre.review.task` (T or P) is our main predictor of interest and has a small significant effect in the intercept-only model. We produce a Trellis graph:
+
+```{r}
+
+ggplot(reviewdf, aes(pre.review.task, record.dur.log, color=pre.review.task)) + geom_boxplot() + facet_wrap(~subj, nrow=5) +scale_colour_manual(values=cbPalette)
+
+```
+
+For some participants, the type of previous task (T or P) might have a different effect on record duration compared to others. For example, based on the medians **P32** had longer segment visits when self-reviewing a text that had been translated as opposed to post-edited. The opposite can be noted for P3, whose median segment visit was longer when self-reviwing a post-edited text. As some participants appear to be more sensitive than others to the T/P condition, a by-subj random slope for the effect of previous task type seems justified.
+
+###Visualising `record.id_scaled`
+
+We also inspect differential effects of `record.id`. This variable reflects how participants sequenced segment visits and may also indicate habituation effects, so different effects for different participants are likely.
+```{r}
+ggplot(reviewdf, aes(record.id_scaled, record.dur.log)) + geom_point() + geom_smooth(method="loess") + facet_wrap(~subj, nrow=5) 
+```
+
+Note: we do not see the actual record.id numbers on the x-axis in this trellis graph because the variable was scaled.
+
+It looks like participants are affected differently by record.id. Some translators made more segment visits than others: some make full use of the record.id scale on the x-axis but most  do not, i.e. their data points are less spread horizontally. In addition, the record.duration data in these segment visits is scattered differently (spread on the y-axis). Some participants became faster during the task (e.g. P23). Others did not become particualrly faster or slower (e.g. P25).
+
+###Visualising `ST.segm.char_scaled`
+
+We inspect a differential baseline effect of segment length on each individual participant. Translators may differ in the way segment length affects the time they spend in a segment. 
+```{r, eval = FALSE}
+ggplot(reviewdf, aes(ST.segm.char_scaled, record.dur.log)) + geom_point(aes(colour=factor(text.no))) + geom_smooth(method="loess") + facet_wrap(~subj, nrow=5) +scale_colour_manual(values=cbPalette)
+```
+
+We can see different degrees of scatter in the individual by-subj scatterplots for record duration by segment length. Some subjects (e.g. P6, P7, P2, P29) only display relatively long record durations (data points higher up the y-axis), whilst others do sometimes spend very little inside a segment (e.g. P1, P16, P20, P21) and therefore have data much lower on the y-axis. There is also a difference in amount of data: some subjects have more data points than others (data-denser graphs), simply because they make more segment visits.
+
+Although differences between participants seem more pronounced in relation to `pre.review.task` and `record.id_scaled`, it makes sense to add a random by-subj slope for `ST.segm.char_scaled` to our model.
+
+**NOTE**: There are four texts in total and each participant worked on two self-review (R) tasks, i.e. on two of the four texts. In the ggplot scatterplots, where the datapoints are coloured by text, we can see which participants worked on the same two texts (e.g. P3 and P30). We can also see that participants work on either texts 1 and 3, or 2 and 4, which is the case because of our study design matrix. We can also see that in P4, P17, P19, P20 and P48 all datapoints have only one colour. This is because one of their self-review tasks had to be excluded from the analysis (see 'Errors and data exclusions' above).
+
+###Model fits
+
+We attempt to find the model with the maximal random effects structure to be further simplified (Bates et al. 2015). Models with complex random effects structures largely failed to converge.
+
+```{r, eval=FALSE}
+
+mod2 <- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task*lang*ST.segm.char_scaled*record.id_scaled|subj) +
+               (1 + pre.review.task*lang*ST.segm.char_scaled*record.id_scaled|unique.segm.id_fctr), data = reviewdf) #a top-down approach that includes all possible by-subj and by-item random slopes. The model does not compute; we abort after an hour
+
+mod3<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task*lang*ST.segm.char_scaled*record.id_scaled|subj) +
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr), data = reviewdf) #does not compute; we abort after 30 min.
+
+mod4<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) +
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr), data = reviewdf) #singular fit
+
+mod5<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) +
+               (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr) + (1|unique.segm.id_fctr), data = reviewdf) #singular fit
+
+mod6<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+                (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) + (1|subj) +
+                (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr) +
+                (1|unique.segm.id_fctr), data = reviewdf) #singular fit
+
+```
+**NOTE1**: When aborting models, we often got the same 'maxfun' warning message. Apparently this is due to the number of iterations performed. See comment by Daniel Ezra Johnson here:   
+[link] (https://mailman.ucsd.edu/pipermail/ling-r-lang-l/2014-December/000733.html)      
+We tried running the models above again by increasing the number of iterations with `glmerControl(optCtrl = list(maxfun=100000))`, but this didn't solve the issue.   
+
+**NOTE2**: Throughout the modelling procedure, we also tried fixing convergence issues and warnings by changing optimizer. These steps are omitted because they did not resolve the issue. We tried the Nelder_Mead, L-BFGS-B and nlminb optimizers, and whilst some warnings did disappear, the models still failed to converge. 
+
+
+Since convergence issues and singular fits persist, we adopt a bottom-up approach by adding by-subj random slopes for fixed effects that were significant in the intercept-only model: `pre.review.task`, `record.id_scaled` and `ST.segm.char_scaled`.
+```{r}
+
+mod7<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+             (1 + pre.review.task + ST.segm.char_scaled + record.id_scaled|subj) + (1|unique.segm.id_fctr), data = reviewdf)
+
+```
+
+Model 7 fits without issues. We try to add by-item random slopes for `pre.review.task`, `record.id_scaled` and `ST.segm.char_scaled` one at a time.
+
+```{r}
+
+mod8<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+             (1 + pre.review.task + ST.segm.char_scaled + record.id_scaled|subj) + 
+             (1+pre.review.task|unique.segm.id_fctr), data = reviewdf) # singular fit
+
+mod9<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+             (1 + pre.review.task + ST.segm.char_scaled + record.id_scaled|subj) + 
+             (1+ST.segm.char_scaled|unique.segm.id_fctr), data = reviewdf) # singular fit
+
+mod10<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+             (1 + pre.review.task + ST.segm.char_scaled + record.id_scaled|subj) + 
+             (1+record.id_scaled|unique.segm.id_fctr), data = reviewdf) # does not converge
+```
+
+Models 8 and 9 have singular fits, model 10 does not converge. Therefore, model 7 is still the maximal model that is fitted without issues. We check if model 7 is parsimonious.
+
+```{r}
+summary(rePCA(mod7))
+```
+
+Most random effects in model 7 have a proportion of variance higher than 5%. One of the by-subj random terms has less than 1% of the proportion of variance, but all random effects are necessary to reach a cumulative proportion of 100%. We compare model 7 to slightly simpler models 11 and 12.
+
+```{r}
+
+mod11<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+          (1 + record.id_scaled|subj) + (1|unique.segm.id_fctr), data = reviewdf)
+
+mod12<- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+                (1 + pre.review.task + record.id_scaled|subj) + (1|unique.segm.id_fctr), data = reviewdf)
+
+anova(mod7, mod11)
+anova(mod7, mod12)
+
+```
+
+Model 7 provides a significantly better fit to our data compared to the other models, as indicated by lower AIC values, a lower deviance statistic and significant p-values. We retain model 7.
+
+```{r}
+summary(mod7)
+```
+
+We note that, in model 7:  
+(1) In the random effects table, the variance accounted for by `subj` is higher than `unique.segm.id_fctr`  
+(2) The residual has the largest variance among the random effects (3.01104). 
+(3) The correlations between the fixed effects does not appear to be worrying.  
+(4) The fixed effect of segment lentgh is significant, which is not surprising. Translators had longer segment visits for longer segments.
+(5) Our main factor of interest is not significant. There was no significant difference in self-review duration whether the preceding task was T ot P.
+(6) The language covariate also is not significant.
+
+
+<!-- **@Natalie**: should we be worried that the intercept is so highly significant? What could such high t.value mean / point to? [Val] -->
+
+<!-- @Natalie: Is there a way to run an equivalence test on pre.review.task? Testing if P and T are equivalent in terms of the temporal/technical effort required for a subsequent self-review is of interest. A method for checking for equivalence is suggested here https://pedermisager.netlify.app/post/mixed_model_equivalence/, but deciding on the smallest effect size of interest seems largely arbitrary, so maybe not worth attempting. [Lucas]  -->
+
+
+
+# MODEL CRITICISM (record duration)
+
+##Notes about mixed effects
+
+<!-- @Natalie: This 'Notes' section was added for reference. Could you let us know if wording is inexact/technically incorrect or could be improved? [Val] -->
+
+* **(1|unique.segm.id_fctr)** = Random intercepts for items: different baselines, i.e. each segment's intercept is allowed to have a different position on the y-axis. "Each segment is allowed to have a different effect on the DV" (can we say this, is this sentence wording technically correct?). This random term allows the model to assume that there can be variation in the visit durations that different items are able to attract/trigger.
+
+* **(1 + pre.review.task + ST.segm.char_scaled + record.id_scaled|subj)** = Random intercepts for subjects: different baselines, i.e. each subject is allowed to have a different effect on the DV. The model assumes that there can be variation in the time each subject spends in a given segment (visit duration).
+Moreover, subjects' slopes are influenced by pre-review task, segment length and record.id. This means that `pre.review.task` has a relationship with `ST.segm.char_scaled` and `record.id_scaled` that varies by subject, and that the variances between these three variables are SHARED. Moreover, all random slopes can be correlated with the intercepts (but not with each other).  
+
+The random effects table for model 7 reports only one variance estimate per random effect 'category' (e.g random by-subj intercept, random by-subj slope for record.id, etc.) because these are overall **model estimates**, not the individual estimates for each participant and item. The individual adjustments are called BLUPS (best linear unbiased predictors).
+
+In model 7, the **random effects vector** consists of: 
+* the 47 by-subj intercept effects   
+* the 47 slope effects for pre-review task  
+* the 47 slope effects for segment length  
+* the 47 slope effects for record id  
+* the 60 by-item intercept effects  
+
+<!-- Note: the below was adapted from this document by Douglas Bates:  
+http://pages.stat.wisc.edu/~bates/IMPS2008/lme4D.pdf   -->
+
+The term `ST.segm.char_scaled` in the fixed effect part of the the lmer formula generates **a model matrix** X with two columns: the intercept column and the numeric segment length column (the intercept is included unless suppressed). The same applies to the other fixed effects in the model.
+
+Note: "For a linear mixed model the estimates of the fixed effect typically have a symmetric distribution close to a Gaussian distribution." (Bates, 2008: 87).
+
+The term `(1|unique.segm.id_fctr)` generates a **vector-valued random effect** (just intercept, no slope), for each of the 60 levels of the item grouping factor (in our case, text segments).
+
+The term `(1+record.id_scaled|subj)` generates a vector-valued random effect (intercept and slope) for each of the 47 levels of the subject grouping factor. 
+<!-- about this last statement: because in this random by-subj term we have not one but three variables allowed to correlate to the by-subj intercept, does this change the size of the resulting "vector-valued random effect", or are each of these these still computed separately? [Val] -->
+
+
+
+##Checking assumptions in linear mixed-effect models
+
+1. LINEARITY OF THE PREDICTORS  
+2. HOMOGENEITY OF VARIANCE (of the residuals)  
+3a. RESIDUALS ARE NORMALLY DISTRIBUTED: model residuals  
+3b. RESIDUALS ARE NORMALLY DISTRIBUTED: random effects residuals  
+4. RESIDUALS ARE INDEPENDENT  
+
+
+### 1. LINEARITY OF THE PREDICTORS  
+
+Given a set of parameters, regression attempts to fit the rectilinear line that best accounts for most data. Therefore, there is an assumption that that the modelled data follows a straight line. This can be checked by plotting the model residuals vs. the predictor. Here, **predictors** does not refer to the IVs but to the DV and its observed/measured values. **Model residuals** refer to the difference between each observed value and model-estimated value.
+
+If a pattern emerges i.e. if anything looks non-random, this assumption is not met. We use the plot() function in base R to compare the model-predicted values to the observed ones:
+```{r}
+dur.linearity<-plot(resid(mod7), reviewdf$record.dur.log) # straight line - high correlation?
+dur.linearity<-plot(resid(mod7), reviewdf$record.duration) # looks like a funnel?
+```
+
+The plot does not show scatter, there is definitely a pattern in the data, suggesting non-linearity of the predictors.
+
+<!-- **@Natalie**: How serious an issue this? What does this mean for the reliability of our model and what steps can be taken to mitigate the fact this assumption is not met? [Val] -->
+
+
+### 2. HOMOGENEITY OF VARIANCE 
+
+The residuals should have constant/homogeneous variance (homoscedasticity). This can be checked both visually (1) and by means of calculations (2).   
+
+(1) First, we produce a plot of residuals against fitted values - there should be no visible pattern/trend in the plot.
+
+```{r}
+plot(mod7) # this plots residuals against fitted values
+```
+
+To be able to exclude non-linear relationships in the data, the residuals should be spread around a horizontal line without distinct patterns. These data do not look particularly scattered. They look more scattered in the left half of the plot than on the right. What shape is this? To me it almost looks like an inverse funnel shape. 
+
+<!-- **@Natalie**: Is the above a cause for concern? Also, see quote below. Can we 'improve the model in an exploratory way'? How could this be achieved? [Val] -->
+
+From here: [link](https://data.library.virginia.edu/diagnostic-plots/)
+>  "Residuals could show how poorly a model represents data. Residuals are leftover of the outcome variable after fitting a model (predictors) to data and they could reveal unexplained patterns in the data by the fitted model. Using this information, not only could you check if linear regression assumptions are met, but you could improve your model in an exploratory way."
+
+(2) Then, we confirm these visual results via numerical calculations. We extract and store our model residuals, square their absolute values for a more robust analysis with respect to issues of normality (see Glaser 2006), and run a simple ANOVA to determine if they are different for each person. This procedure is a variation of the Levene’s Test. Since the assumption is that the variance between subjects is not going to differ, we should see no statistical differences in this procedure (i.e. p>0.05). See: [link](https://ademos.people.uic.edu/Chapter18.html#62_assumption_2_homogeneity_of_variance)   
+
+```{r}
+# Method 1 
+reviewdf$dur.model.resids<- residuals(mod7) 
+# extracts the residuals and places them in a new column (so now 36 variables in our df)
+
+reviewdf$dur.model.abs.resids <-abs(reviewdf$dur.model.resids) 
+# creates a new column with the absolute value of the residuals (37 variables in df)
+
+reviewdf$dur.mod.abs.resid.sq <- reviewdf$dur.model.abs.resids^2 
+# squares the absolute values of the residuals to provide the more robust estimate. (38 variables in df)
+
+Levene.dur.mod <- lm(dur.mod.abs.resid.sq ~ subj, data=reviewdf) # anova of the squared residuals
+anova(Levene.dur.mod) # displays the results
+
+# Method 2 
+# first we use the model residuals as they are
+
+leveneTest(dur.model.resids ~ subj, reviewdf) 
+
+# then we use the squared absolute values of the residuals ("more robust estimate"):
+leveneTest(dur.mod.abs.resid.sq ~ subj, reviewdf)
+
+```
+
+In our duration model, we see a statistical difference in the Levene's test, therefore we cannot state that the variance of the residuals is equal across groups, and the assumption of homoscedasticity is not met.
+
+<!-- **@Natalie**: (1) This is the second model assumption that is not met: how concerned should we be about the validity of the model? (2) See quote below. Can we (and should we) do this for our 60 items as well, or only for our 47 subjects? Above, it was done just for subjects. -->
+
+> "Regression models assume that variance of the residuals is equal across groups. In this case, the groups we are referring to are at the individual (i.e. subject) level."
+
+
+### 3a. RESIDUALS ARE NORMALLY DISTRIBUTED (model residuals)
+
+"QQ plots can provide an estimation of where the standardized residuals lie with respect to normal quantiles. Strong deviation from the provided line indicates that the residuals themselves are not normally distributed." (quote from source  1 below) 
+
+```{r}
+
+qqmath(mod7, id=0.05) #id: identifies values that may be exerting undue influence on the model (i.e. outliers)
+qqmath(mod7) # we try to visualise without the id part
+
+# but according to source 4, we can also use qqnorm(residuals())
+qqnorm(residuals(mod7))
+```
+
+It looks like there are several values exerting undue influence on the model, there is indeed quite a bit of deviation from from the expected normal line towards both tails (more on the bottom tail than top tail), but the line also looks very straight in the middle... are these data normal? Is this assumption violated or not? 
+
+Sources for reference:  
+1. [link](https://ademos.people.uic.edu/Chapter18.html#63_assumption_3:_the_residuals_of_the_model_are_normally_distributed)  
+2. [link](https://www.r-bloggers.com/model-validation-interpreting-residual-plots/)   
+3. [link](http://data.library.virginia.edu/diagnostic-plots/)   
+4. [link](https://www.ssc.wisc.edu/sscc/pubs/MM/MM_DiagInfer.html)   
+
+
+### 3b. RESIDUALS ARE NORMALLY DISTRIBUTED (random effects residuals)
+
+We check for the normal distribution of the random effect residuals by using the `ranef()` function, which "extracts the conditional modes of the random effects as a list of data frames, one entry in the list corresponding to one grouping factor". Quote from here: [link](https://stats.stackexchange.com/questions/117170/testing-whether-random-effects-are-normally-distributed-in-r)    
+These residuals are what Baayen (2008: 268-269) calls the 'BLUPS' (Best Linear Unbiased Predictors), i.e the actual adjustments to the intercepts and slopes for specific subjects and items. In our model, we have a variety of residuals, so we check each of them individually:
+
+```{r}
+# by-subj intercept
+ranef(mod7) # prints them all out
+r_int_subj<- ranef(mod7)$subj$ `(Intercept)` # adds an object under 'Values' in the data explorer
+qqnorm(r_int_subj, main="Normal Q-Q Plot for by-subj intercept")
+qqline(r_int_subj) # data deviate from normality line at bottom of graph
+shapiro.test(r_int_subj) # formal test, confirms the residuals (BLUPS) are NOT normally distributed
+
+# by-item intercept
+r_int_item<- ranef(mod7)$unique.segm.id_fctr$ `(Intercept)` 
+qqnorm(r_int_item, main="Normal Q-Q Plot for by-item intercept")
+qqline(r_int_item) # data look approximately normal, but there are 2 clear ouliers at the bottom of the graph
+shapiro.test(r_int_item) # confirms BLUPS are normally distributed (just about).
+
+# by-subj slope for pre.review.task
+r_slope_PRT<- ranef(mod7)$subj$pre.review.task 
+qqnorm(r_slope_PRT, main="Normal Q-Q Plot for by-subj pre.review.task slope")
+qqline(r_slope_PRT)# data depart from normality line both at the bottom and at the of the plot:
+# there are several outliers/cases exerting influence at the bottom, where departure is more visible
+# but there is also one data point that steeply departs from the normality line at the top of the graph. 
+shapiro.test(r_slope_PRT) # confirms BLUPS are NOT normally distributed
+
+# by-subj slope for record.id
+r_slope_record.id<- ranef(mod7)$subj$record.id_scaled
+qqnorm(r_slope_record.id, main="Normal Q-Q Plot for by-subj record.id slope")
+qqline(r_slope_record.id) # data depart from normality line both at the bottom and at the top
+# departure is steeper at the top due to one very high data point
+# 4 data points visibly departing from the normality line at the bottom too
+shapiro.test(r_slope_record.id) # confirms BLUPS are NOT normally distributed
+
+# by-subj slope for segment length
+r_slope_segm.length<- ranef(mod7)$subj$ST.segm.char_scaled
+qqnorm(r_slope_segm.length, main="Normal Q-Q Plot for by-subj segment length slope")
+qqline(r_slope_segm.length) # data depart from the normality line, mostly at the bottom (at the top due to one data point)
+# data at bottom has several (9) data points departing from line, one point is very far away from the rest and the line
+shapiro.test(r_slope_segm.length) # confirms BLUPS are not normal (but fairly close).
+```
+
+The only set of BLUPs that appear to be just about normal are those for the by-item intercept (p-value = 0.07141). The BLUPs are not normally distributed in the random by-subj intercept, random by-subj slope for pre.review.task, random by-subj slope for record.id, and random by-subj slope for record.id (though in this case p-value = 0.03182 so normality is approximated).
+
+Therefore, this mixed-effect linear model assumption is also not met. 
+
+
+### 4. RESIDUALS ARE INDEPENDENT  
+
+First of all, to check for dependence of the residuals, we need something the residuals can depend on.   
+"There are basically 2 classes of dependencies:   
+(1) - Residuals correlate with another variable  
+(2) - Residuals correlate with other (close) residuals (autocorrelation).  
+For (1), it is common to plot: residuals against predicted value, or residuals against predictors. You can formalize any dependency you spot with a correlation test or a regression if you want, but usually problems are visually identified." (quote from ref. 1)
+
+For reference:
+1. [link](https://stats.stackexchange.com/questions/247869/how-to-test-for-independence-of-residuals-in-linear-model)   
+2. [link](https://www.ssc.wisc.edu/sscc/pubs/MM/MM_DiagInfer.html#diagnostics)
+
+```{r}
+
+# First, plot residuals against "record.id_scaled":
+ggplot(data.frame(record.id_scaled=reviewdf$record.id_scaled,pearson=residuals(mod7,type="pearson")),
+       aes(x=record.id_scaled,y=pearson)) +
+  geom_point() +
+  theme_bw()
+# we also plot the non-scaled record id variable to identify segment visits on x-axis
+ggplot(data.frame(record.id=reviewdf$record.id,pearson=residuals(mod7,type="pearson")),
+       aes(x=record.id,y=pearson)) +
+  geom_point() +
+  theme_bw()
+
+
+# Second, plot residuals against "ST.segm.char_scaled":
+ggplot(data.frame(ST.segm.char_scaled=reviewdf$ST.segm.char_scaled,pearson=residuals(mod7,type="pearson")),
+       aes(x=ST.segm.char_scaled,y=pearson)) +
+  geom_point() +
+  theme_bw()
+
+
+# Third, plot residuals against "pre.review.task":
+ggplot(data.frame(pre.review.task=reviewdf$pre.review.task,pearson=residuals(mod7,type="pearson")),
+       aes(x=pre.review.task,y=pearson)) +
+  geom_point() +
+  theme_bw()
+```
+
+The residuals of the model are not independent from `record.id_scaled` because they are not randomly scattered in the plot. The data looks funnel shaped and is presented "in vertical lines" due to the integer nature of record.id. Most of the data points are clustered on the left of the graph, within the first 25 segment visits (record.id = 25 on x-axis), and much less data is visible after 50 segment visits (mid-point on x-asis).
+
+As for the IV `ST.segm.char_scaled`, the data in this graph looks fairly distributed across the length of the x-axis, but the plot does not look like a standard random scatter; data is presented "in vertical lines" again.
+
+<!-- Maybe the graph looks a bit peculiar only because segment length (originally an integer) is a count variable. Can the model residuals be considered independent from segment length?  -->
+
+<!-- Last, in the plot for the IV `pre.review.task`, the data is distributed only in T and P because this IV is categorical with two levels. I am not sure how to interpret this graph: are the model residuals independent from pre-review task? -->
+
+<!-- **Question for Natalie**: Could you help us interpret the graphs in assumption #4 and answer the above questions? I found it difficult to assess whether the assumption is met or not. Finally, it seems that most lmer assumptions are violated by this duration model. How is it best to go about this? [Val] -->
+
+
+# BY-SEGMENT ANALYSIS (record duration) 
+
+The duration analysis above has been carried out **at segment visit level**. We run the same analysis on a dataset aggregated **at segment level** to see if there are any differences in the conclusions, especially in relation to our main predictor of interest, pre-review task. 
+
+##Segment-level aggregtation
+
+```{r}
+
+bysegm.df <- summaryBy(record.duration + keystrokes ~ as.factor(unique.segm.id) + subj + pre.review.task + as.factor(ST.segm.char) + lang, data=reviewdf, FUN=sum)
+
+glimpse(bysegm.df)
+
+```
+
+##Boxplots, means and medians (duration, by-segment)
+
+We generate boxplots showing the difference between translation (T) and post-editing (P) as the task that preceded the self-review. 
+
+``` {r}
+
+#Normalising record.duration.sum by segment length
+bysegm.df$record.dur.norm <- bysegm.df$record.duration.sum/bysegm.df$ST.segm.char
+
+
+#Comparing means and medians between T and P (pre-review task) after normalising by segment length.
+bysegm.df %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_dur_bysegm = mean(record.dur.norm), sd_dur_bysegm = sd(record.dur.norm), median_dur_bysegm = median(record.dur.norm))
+
+
+#We log-tranform the normalised variable to aid visualisation in the boxplot
+bysegm.df$record.dur.norm_log <- log(bysegm.df$record.dur.norm )
+
+ggplot(bysegm.df, aes(x=pre.review.task,y=record.dur.norm_log,color=pre.review.task))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Milliseconds per source character (logs, segment level)")
+```
+
+
+##Transformation and rescaling (duration, by-segment)
+
+```{r}
+
+bysegm.df$record.dur.log <- log(bysegm.df$record.duration.sum) #log-transforming the unormalised variable
+
+bysegm.df$unique.segm.id_fctr <- as.factor(bysegm.df$unique.segm.id) #turning `unique.segm.id` into a factor
+
+bysegm.df$ST.segm.char_scaled <- scale(bysegm.df$ST.segm.char) #recsaling `ST.segm.char` into a factor
+
+```
+
+
+##Mixed-effect modelling (duration, by-segment)
+
+We fit the model selected in the visit-level analysis (model 7), except this time without `record.id` since all records (i.e. segment visits) were now added up per segment.
+
+```{r}
+dur.model_bysegm <- lmer(record.dur.log ~ pre.review.task + lang + ST.segm.char_scaled +
+             (1 + pre.review.task + ST.segm.char_scaled|subj) + (1|unique.segm.id_fctr), 
+             data = bysegm.df)
+summary(dur.model_bysegm)
+```
+
+The by-segment model was fitted without any issues. 
+
+In the random effects table, we note that the residual term still accounts for the most variance amongst all random effects in the model. In the by-visit model, the second highest variance was accounted for by `record.id_scaled`, which is not in this model. After these, the random effects that accounted for the most variance in model7 were the by-subject intercept and the by-subject random slope for pre-review task. This remains the case in the by-segment model.
+
+Consistently with model 7 in the by-visit analysis, the only two predictors with significant main effects are the intercept and segment length. Our main predictor of interest, pre-review task, does not have a significant effect. In summary, the by-segment model confirms the results of the by-visit analysis.
+
+
+# KEYSTROKE MODELLING 
+
+We followed the same modelling procedure outlined above for keystrokes. We fit GLMER models, using a Poisson family distribution with a log link function, because keystrokes is an integer count variable. 
+
+We start with an intercept-only model.
+
+```{r}
+ks.mod1<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1|subj) + (1|unique.segm.id_fctr), data = reviewdf, family = poisson(link = "log"))
+summary(ks.mod1)
+```
+
+We note that the generalised mixed-effect model glmer does not produce a 'Residual' component like lmer does. Three fixed effects appear to have significant effects in the intercept-only model, namely `pre.review.task`, `ST.segm.char_scaled` and `record.id_scaled`. The correlation of fixed-effects table does not present a cause for concern (the highest correlation is -0.660;  most other correlations are much lower).
+
+We inspect possible differential effects of these key variables on each individual participant. 
+
+###Visualising `pre.review.task`
+`pre.review.task` (T or P) is our main predictor of interest and has a large significant effect in the intercept-only model for keystrokes. We produce a Trellis graph:
+
+```{r}
+
+ggplot(reviewdf, aes(pre.review.task, keystrokes, color=pre.review.task)) + geom_boxplot() + facet_wrap(~subj, nrow=5) +scale_colour_manual(values=cbPalette)
+
+```
+Although the zero-inflated nature of keystrokes makes visualisation harder, some by-participant differences clear (e.g. P29 v P3, or P47 v P25). Therefore, in principle adding a random slope for the effect of previous task type seems justified. 
+
+###Visualising `record.id_scaled`
+
+In the intercept-only model for keystrokes, `record.id_scaled` had a significant main effect. As previously mentioned, this variable reflects how participants sequenced segment visits and may also indicate habituation effects. We inspect differential effects of `record.id` on keystrokes for each participant: 
+
+```{r}
+
+ggplot(reviewdf, aes(record.id_scaled, keystrokes)) + geom_point() + geom_smooth(method="loess") + facet_wrap(~subj, nrow=5) 
+
+
+```
+
+Note: we do not see the actual record.id numbers on the x-axis because the variable was scaled.
+
+The plot shows that, when they type, most translators make less than 50 keystrokes per segment visit (data points are rarely spread vertically along the y-axis), though in some cases the keystroke data is a little more scattered. In many of the 47 subject panels there are individual record visits where there was an unusual amount of typing, i.e. individual data points that are unusually high on the y-axis and far away from the main data cluster (outliers).
+
+We add a random by-subj slope for `record.id` to the model.
+
+###Visualising `ST.segm.char_scaled`
+
+In the intercept-only model, `ST.segm.char_scaled` had significant main effects. We inspect a differential baseline effect of segment length on each individual participant:
+
+```{r}
+
+ggplot(reviewdf, aes(ST.segm.char_scaled, keystrokes)) + geom_point(aes(colour=factor(text.no))) + geom_smooth(method="loess") + facet_wrap(~subj, nrow=5) +scale_colour_manual(values=cbPalette)
+
+```
+
+We can see different degrees of scatter in the individual by-subj scatterplots for keystrokes by segment length. Most translators make less than 50 keystrokes per segment (data points are rarely spread vertically along the entirety of the y-axis), though in some people (e.g. P45, P3, P32) the ks data are a little more scattered. The plot also shows that there is keystroke data associated with both short and long segments, as indicated by the presence of data points all along the x-axis for most participants. Some segments appear to attract unusually high amount of typing (outliers). These unusually high keystroke values occur not only on very long segments (length > 200) like for P45 or P3, but also on medium-length segments (length 100-200), e.g. for P25 or P29.
+
+We add a random by-subj slope for `ST.segm.char_scaled` to the model.
+
+###Model fits
+
+We attempt to find the keystroke model with the maximal random effects structure to be further simplified (Bates et al. 2015). Models with complex random effects structures largely failed to converge.
+
+```{r, eval=FALSE}
+ks.mod1<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task*lang*ST.segm.char_scaled*record.id_scaled|subj) +
+               (1 + pre.review.task*lang*ST.segm.char_scaled*record.id_scaled|unique.segm.id_fctr),
+               data = reviewdf, family = poisson(link = "log")) # a top-down approach that includes all possible by-subj and by-item random slopes. The model does not compute; we abort after an hour.
+
+ks.mod2<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task*lang*ST.segm.char_scaled*record.id_scaled|subj) +
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr), 
+               data = reviewdf, family = poisson(link = "log")) # does not compute; we abort after 30 min.
+
+ks.mod3<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) +
+               (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr), 
+               data = reviewdf, family=poisson(link = "log")) # does not compute; aborted.
+
+ks.mod4<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+              (1 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) +
+              (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr) +
+              (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # does not compute; aborted.
+
+ks.mod5<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+                (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) + (1|subj) +
+                (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|unique.segm.id_fctr) +
+                (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # does not compute; aborted.
+
+ks.mod6<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+              (0 + pre.review.task+lang+ST.segm.char_scaled+record.id_scaled|subj) + (1|subj) +
+              (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # converge issues; several warnings.
+
+```
+
+Convergence issues and various warning messages persist, so we adopt a bottom-up approach by adding by-subj random slopes for fixed effects that were significant in the intercept-only model: `pre.review.task`, `record.id_scaled` and `ST.segm.char_scaled`.
+
+```{r, eval=FALSE}
+ks.mod7<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+              (1 + pre.review.task+ST.segm.char_scaled+record.id_scaled|subj) +
+              (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) #does not converge
+```
+
+Adding all by-subject random slopes at once results in a failure to converge. We try adding slopes one by one. First, we add one for our main predictor of interest `pre.review.task`:
+
+```{r, eval=FALSE}
+ks.mod8<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled + 
+              (1 + pre.review.task|subj) + (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # no issues
+summary(ks.mod8)
+
+```
+
+Model 8 is fitted without issues. Adding a by-subject slope for pre-review task results in the fixed effect of this predictor losing significance. Main effects for segment length and record id remain significant in this model.
+
+```{r, eval=FALSE}
+ks.mod9<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task + ST.segm.char_scaled|subj) + 
+         (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log"))   # by-subj random slope for `ST.segm.char_scaled` -- no issues
+summary(ks.mod9)
+
+ks.mod10<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task + record.id_scaled|subj) + 
+         (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log"))   #by-subj random slope for `record.id_scaled` -- no issues
+summary(ks.mod10)
+
+
+ks.mod11<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task + record.id_scaled|subj) + (0 + ST.segm.char_scaled|subj) + 
+         (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log"))  # adding an uncorrelated by-subj random slope for `ST.segm.char_scaled` -- fails to converge 
+
+ks.mod12<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task + ST.segm.char_scaled|subj) + (0 + record.id_scaled|subj) + 
+         (1|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # adding an uncorrelated by-subj random slope for `record.id_scaled` -- no issues
+
+```
+
+Model 12 is so far the most comprehensive model. We attempt to add some by-item slopes to the model:
+
+```{r, eval = FALSE}
+ks.mod13<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task|subj) + (0 + record.id_scaled + ST.segm.char_scaled|subj) + 
+         (1 + pre.review.task|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # by-item slope for `pre.review.task` -- fails to converge
+
+ks.mod14<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task|subj) + (0 + record.id_scaled + ST.segm.char_scaled|subj) + 
+         (1 + ST.segm.char_scaled|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log"))  # by-item slope for `ST.segm.char_scaled` -- fails to converge
+
+ks.mod15<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+         (1 + pre.review.task|subj) + (0 + record.id_scaled + ST.segm.char_scaled|subj) + 
+         (1 + record.id_scaled|unique.segm.id_fctr), data = reviewdf, family=poisson(link = "log")) # by-item slope for `ST.segm.char_scaled` -- no issues
+
+
+```
+
+Model 15 is fitted without issues and is the most comprehensive model. We check whether model 15 is parsimonious:
+
+```{r}
+summary(rePCA(ks.mod15))
+```
+
+All random effects in model 15 have a proportion of variance higher than 5%; they are all necessary to reach a cumulative proportion of 100%. 
+``` {r}
+
+summary(ks.mod15)
+
+```
+The predictor of interest `pre.review.task` is not significant. Unsurprisingly, `ST.segm.char_scaled` has a positive effect on the keystroke count (i.e. there were more keystrokes for longer segments). The effect of `record.id` is also significant. The model suggests that participants became faster during the task. In the random effects table, we note that the by-subj intercept accounts for the largest variance, followed by the by-subj slope for record id and that of pre-review task. Finally, the fixed effects correlations do not present particular cause for concern.
+
+###Overdispersion checks
+
+In overdispersed data, the combined residuals are much larger than the residual degrees of freedom.
+
+> "Overdispersion occurs when the observed variance is higher than the variance of a theoretical model. For Poisson models, variance increases with the mean, thus, variance usually (roughly) equals the mean value. If the variance is much higher, the data are "overdispersed"
+
+See: [link](https://easystats.github.io/performance/reference/check_overdispersion.html)      
+
+To check for overdispersion, we use the `overdisp_fun()` custom function found here (by Ben Bolker): [link](https://bbolker.github.io/mixedmodels-misc/glmmFAQ.html#overdispersion)    
+
+```{r}
+overdisp_fun <- function(model) {
+  rdf <- df.residual(model)
+  rp <- residuals(model,type="pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq/rdf
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+
+overdisp_fun(ks.mod15)
+
+```
+
+The extremely low p-values indicate that the model is very overdispersed. In the lme4 package, overdispersion can be accounted for in a model by including an observaion-level random effect.
+[link](https://rdrr.io/github/markushuff/PsychHelperFunctions/man/overdisp_fun.html) 
+[link](https://stats.stackexchange.com/questions/6989/how-do-i-fit-a-multilevel-model-for-over-dispersed-poisson-outcomes/9670#9670) 
+
+We create an observation-level variable with a unique value for each observation (1:nrow(dat)), so we can incorporate overdispersion in the model by fitting (1|obs_effect).
+
+```{r, eval=FALSE}
+reviewdf$obs_effect<-1:nrow(reviewdf) # adds column to the df
+
+ks.mod15Bobs<- glmer(keystrokes ~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +  
+              (1 + pre.review.task|subj) + (0 + record.id_scaled + ST.segm.char_scaled|subj) + 
+              (1 + record.id_scaled|unique.segm.id_fctr) + (1|obs_effect), 
+              data = reviewdf, family=poisson(link = "log")) # fails to converge  
+```
+
+We try adding the observation-level random term to the intercept-only model.
+```{r}
+
+ks.mod1obs<- glmer(keystrokes~ pre.review.task + lang + ST.segm.char_scaled + record.id_scaled +
+              (1|subj) + (1|unique.segm.id_fctr) + (1|obs_effect), data = reviewdf,  family=poisson(link = "log")) # fails to converge 
+
+```
+
+Including an observation-level random effect (1|obs_effect) to control for overdispersion causes convergence issues, including in the baseline model. Overdispersion is further addressed in the model criticism section below. 
+
+Model 15 remains the most maximal model that was fitted without any issues or warnings. We therefore consider this our final model. Next, we summarise it and check whether model assumption are met. 
+
+<!-- **@Natalie**: The keystroke model is overdispersed yet we cannot model the overdispersion, as adding yet another random term (1|obs_effect) means none of the models converge. What does overdispersion mean for our data and how serious an issue is it? How would you suggest controlling for it? Please also see note at the end of the model criticism below.[Val]-->
+
+
+# MODEL CRITICISM (keystroke model)
+
+##Checking assumptions for Poisson models
+
+From this chapter on Poisson regression:  
+[link](https://bookdown.org/roback/bookdown-BeyondMLR/ch-poissonreg.html)  
+
+1. **Poisson Response**: The response variable is a count per unit of time or space, described by a Poisson distribution.     
+2. **Independence**: The observations must be independent of one another.   
+3. **Mean=Variance**: By definition, the mean of a Poisson random variable must be equal to its variance.   
+4. **Linearity**: The log of the mean rate, log(λ), must be a linear function of x. 
+
+<!-- **@Natalie**: Are there any more assumptions (not listed above) that we need to check? These are the only ones I could find. [Val] -->
+
+### 1. POISSON RESPONSE
+
+"The Poisson distribution can only handle positive whole numbers. The binomial and Poisson distributions are different from the others because they are discrete rather than continuous, which means they quantify distinct, countable events". [link](https://www.juliapilowsky.com/2018/10/19/a-practical-guide-to-mixed-models-in-r/)
+
+Our response variable is indeed an integer count per unit, where the unit is a segment visit, and only positive values are possible (there cannot be a negative number of keystrokes). The minimum value is zero and the max value is theoretically unbound. In practice, 221 is the max number of keystrokes recorded per segment visit in this dataset, yet the average number of keystrokes is much lower, 6.24 per visit. Like many Poisson distributions, the descriptive graphs earlier in this analysis showed that keystrokes is highly right-skewed, i.e. it is not a normally distributed response. 
+
+```{r}
+mean(reviewdf$keystrokes)
+max(reviewdf$keystrokes)
+hist(reviewdf$keystrokes)
+```
+
+<!-- **@Natalie**: Is the above enough to assert that keystrokes is best described by a Poisson distribution? Is a Poisson distribution indeed the right distribution for our keystroke model? Some sources seemed to suggest quasipoisson or negative binomial distributions might be preferred in some cases. [Val] -->
+
+
+### 2. INDEPENDENCE
+
+The independence assumption is assessed using knowledge of the study design and the data collection process. See: [link](https://bookdown.org/roback/bookdown-BeyondMLR/ch-poissonreg.html)     
+
+In our case, the data are not independent because a single subject provides several responses (keystroke data) on the same text and othere can even be several typing events on the same segment, so these data will be correlated. Using mixed effect modelling controls for the repeated nature of our data. This is why we have random effect terms for both subjects and items. Therefore, this assumption needs to be explicitly met only when regression modelling does not include when random effects.  
+   
+<!-- **@Natalie**: can you confirm this is OK? [Val] -->
+
+
+### 3. MEAN=VARIANCE
+
+For Poisson random variables, the variance of Y (i.e., the square of the standard deviation of Y), is equal to its mean. In our case, Y represents the amount of typing (number of keystrokes in a segment visit). "As the mean increases, the variance increases. So, if the response is a count and the mean and variance are approximately equal for each group of X, a Poisson regression model may be a good choice."
+[link](https://bookdown.org/roback/bookdown-BeyondMLR/ch-poissonreg.html)  
+
+One of the assumptions of the Poisson distribution is therefore that its mean and variance have the same value. We can check by simply comparing mean and variance of our data. From here: [link](https://www.r-bloggers.com/2017/06/linear-models-anova-glms-and-mixed-effects-models-in-r/)  
+
+```{r}
+# mean(reviewdf$keystrokes)  
+mean(reviewdf$keystrokes)
+var(reviewdf$keystrokes)  
+
+reviewdf %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_ks = mean(keystrokes), var_ks = var(keystrokes))
+
+ks_bysubj<-reviewdf %>%
+  group_by(subj) %>%
+  summarise(mean_ks = mean(keystrokes), var_ks = var(keystrokes))
+
+ks_bysubj_byPRT <-reviewdf %>%
+  group_by(subj, pre.review.task) %>%
+  summarise(mean_ks = mean(keystrokes), var_ks = var(keystrokes))
+
+ks_bysubj_byPRT
+tail(ks_bysubj_byPRT)
+nrow(ks_bysubj_byPRT[ks_bysubj_byPRT$mean_ks > ks_bysubj_byPRT$var_ks,])  
+```
+
+The mean amount of typing inside a segment in a single visit is 6.24 keystrokes, but the variance is 339.55. Mean and variance are very far apart, so this assumption appears to be violated. 
+
+When we inspect amount of typing for our main variable of interest (`T & P`pre.review.task`), we notice that:
+- in both condition T and P the variance is 50+ times higher than the mean;
+- there is only one case (P48) where mean and variance are the same (zero) and that's because in both review tasks, this participant did not make any changes to the text (no typing);
+- although keystroke variance is always higher than the mean, for some subjects the difference is larger than for others. For instance, in P36 keystroke variance is 3 times higher than the mean, but in P45 it is 73 times higher than the mean.
+
+<!-- **@Natalie**:  does the fact that this assumption is violated indicate that a Poisson model is not appropriate? [Val]-->
+
+
+### 4. LINEARITY
+
+"The log of the mean rate, log(λ), must be a linear function of x."   
+"linearity with respect to log(λ) is difficult to discern without continuous predictors"  
+From here: [link](https://bookdown.org/roback/bookdown-BeyondMLR/ch-poissonreg.html)  
+
+<!-- **@Lucas**: We have four X variables (independent variables or covariates) in our model. Two are numerical (segment length and record id), and two are categorical (pre-review task and language). In the example reported in the link above, X is a numerical variable (age). Below, I try to adapt the same line of reasoning for one of our numerial predictors X of interest, segment length.[Val] -->
+
+The Poisson regression model implies that log(λi), not the mean keystrokes λi, is a linear function of segmenth length; i.e., log(λi)=β0+β1segment lengthi. Therefore, to check assumption 4 (linearity) for Poisson regression, we would like to plot log(λi) by segment length. Unfortunately, λi is unknown. Our best guess of λi is the observed mean keystrokes for each segment length (level of X). Because these means are computed for observed data, they are referred to as empirical means. Taking the logs of the empirical means and plotting by segment length provides a way to assess the linearity assumption. If there is a curvilinear relationship between segment length and the log of the mean keystrokes, adding a quadratic term should be considered. 
+
+<!-- **@Lucas and Natalie**: Before we "take the logs of the empirical means of keystrokes in R and plot by segment length", is this something worth doing? Our main predictor of interest X is categorical (pre-review task). Does this mean the linearity assumption cannot be tested for this variable? [Val] -->
+
+<!-- I'm not terribly concerned by the assumption violations because in my experience they have more serious implications for false positives rather than false negatives, though maybe this is not always the case. The research question is whether pre.review.task changes self-review behaviour (record duration and keystrokes). The answer to me seems clear at this point - we cannot say it does based on this data. @Natalie: feel free to retain just the checks you think are relevant - I think the model criticism can be condensed [Lucas] -->
+
+### A note on overdispersion
+
+From here: [link](https://bookdown.org/roback/bookdown-BeyondMLR/ch-poissonreg.html)    
+
+"Overdispersion suggests that there is more variation in the response than the model implies. Under a Poisson model, we would expect the means and variances of the response to be about the same in various groups. Without adjusting for overdispersion, we use incorrect, artificially small standard errors leading to artificially small p-values for model coefficients. We may also end up with artificially complex models.
+
+We can take overdispersion into account in several different ways. The simplest is to use an **estimated dispersion factor** to inflate standard errors. Another way is to use a **negative-binomial regression** model." 
+
+<!-- **@Natalie**: Earlier in the keystroke analysis we tried to account for overdispersion by adding a random term (1|obs.variable) to the model, but this was not possible even in the simplest intercepts-only model, as the model did not converge. Could trying one of the two solutions above help? If so, could you show us how this could best be accomplished? -->
+
+Some zero values are certainly expected in our keystroke variable, because it is likely that translators do not type in every segment during self-review, but only in the segments that need further editing (typing).
+
+<!-- **@Natalie**: However, is it possible that our keystroke data has "more zero values than the Poisson distribution would allow"? Apparently this circumstance arises in many Poisson regression settings. In these cases, some suggest fitting a zero-inflated or ZIP Poisson model, whereby λ would be defined as the mean number of keystrokes **among those who type**. Do you think this is worth exploring and if so, could you advise as to how to do this?-->
+
+
+# BY-SEGMENT ANALYSIS (keystroke model) 
+
+The analysis above was carried out **at segment visit level**. We run the keystroke analysis on the dataset aggregated **at segment level** to see if there are any differences. 
+
+We use the `bysegm.df` dataset. 
+
+## Boxplots, means and medians (keystrokes, by-segment)
+
+We use boxplots to visualise the difference between translation (T) and post-editing (P) as the task that preceded the self-review. 
+
+``` {r}
+
+#We normalise keystrokes by the length of source segments
+bysegm.df$keystrokes.norm <- bysegm.df$keystrokes.sum/bysegm.df$ST.segm.char
+
+
+#Comparing means and medians between T and P (pre-review task) after normalising by segment length.
+bysegm.df %>%
+  group_by(pre.review.task) %>%
+  summarise(mean_keys_bysegm = mean(keystrokes.norm), sd_keys_bysegm = sd(keystrokes.norm), median_keys_bysegm = median(keystrokes.norm))
+
+#We take the square root of the normalised variable to aid visualisation in the boxplot
+bysegm.df$keystrokes.norm_sqrt <- sqrt(bysegm.df$keystrokes.norm)
+
+#Boxplot
+ggplot(bysegm.df, aes(x=pre.review.task,y=keystrokes.norm_sqrt,color=pre.review.task))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Keystrokes per source character (sqrt)")
+
+
+```
+There is a very small difference between the means, but the median number of keystrokes per source character is the same for P and T as `pre.review.task`.
+
+
+## Mixed-effect modelling (by-segment dataset)
+
+We run model 15 at the segemnt level. There is no `record.id` in this model because the data aggregation.
+
+```{r, eval=FALSE}
+ks.model_bysegm<- glmer(keystrokes.sum ~ pre.review.task + lang + ST.segm.char_scaled +  
+         (1 + pre.review.task|subj) + (0 + ST.segm.char_scaled|subj) + 
+         (1|unique.segm.id_fctr), data = bysegm.df, family=poisson(link = "log")) 
+
+summary(ks.model_bysegm)
+```
+
+The by-segment model ("ks.model_bysegm") was fitted without any issues and is consistent with the by-visit model. Apart from the absence of `record.id`, the order of the random effects that account for the most variance remains the same. The by-subject intercept still accounts for the largest variance, followed by the by-subject slope for pre-review task, and the by-item intercept. 
+
+In the fixed effects table, `pre.review.task` and language (`lang`) remain not significant. The only two significant main effects are now segment length (`ST.segm.char_scaled`) and the intercept. In the by-visit model, they were `ST.segm.char_scaled` and `record.id`. This is the only difference in significance between the two models. 
+
+In summary, the by-segment model for keystrokes confirms the results of the corresponding by-visit analysis. 
+
+The fact that no major differences were found by running the same model at segment and visit level in both our analyses (lmer for duration and glmer for kesytrokes), might suggest that aggregating datasets at the segment level - as it is traditionally done in translation research - circumvents the undue influence that record id can have on by-visit data without losing crucial inferential ability, despite the inevtiable decrease in granularity associated with aggregation. 
+
+
+# EDIT-DISTANCE ANALYSIS
+
+
+## Preliminary steps
+
+We import a separate dataset with the product of translators' work as well as the raw machine translation output used in the P task. We use `read_csv()` from the `readr` package to easily retain special characters. The `read_csv()` function imports the data as a tibble (tidyverse) rather than as a data frame.
+
+```{r}
+edist.df <- read_csv("product.csv")
+
+spec(edist.df)
+names(edist.df)
+str(edist.df)
+```
+
+The `edist.df` dataset contains translation products in three columns: 
+
+- `raw.MT`: this is the unedited machine translation presented to translators in a post-editing (P) task. When the task preceding the self-review is translation (T), this column takes a value of 'NA'.
+
+- `pre.rev.ver`: this is the product of translators' work before their self-review. It will either be a post-edited (where `tasktype` = P) or a translated text (where `tasktype` = T).
+
+- `sr.ver`: this is the final product of translators' work after self-review.
+
+As a translation-product dataset, we note that `edist.df` has the full text delivered by translators even for tasks where process data is not available (see ##Other observations or cases to note, above).
+
+We also note that the `edist.df` dataset does not include any tasks already excluded above under # Errors and data exclusions. 
+
+## Edit distance metrics
+
+Resources used:  
+[link](https://www.r-bloggers.com/2020/05/how-to-apply-text-distances-and-fuzzy-joins/)    
+[link](https://www.r-bloggers.com/2019/04/natural-language-processing-in-r-edit-distance/)     
+[link](https://www.r-bloggers.com/2013/02/the-stringdist-package/)  
+[link](https://github.com/markvanderloo/stringdist)  
+[link](https://journal.r-project.org/archive/2014-1/loo.pdf) # R paper on stringdist  
+
+Edit distance, also called Levenshtein distance, is a measure of the number of edits that would need to be made to transform one string into another. Edits are classified as follows:
+
+Primary edits:
+a) Insertion of a new character. Example: boat vs boats (insertion of an s).
+b) Deletion of an existing character. Example: fair vs far (deletion of an i).
+c) Substitution of an existing character. Example: lamp vs lamb (substitution of p with b). 
+
+Secondary edits:
+d) Transposition of two existing consecutive characters. Example: sing vs sign (transposition of ng to gn). 
+
+We compute edit distance using the `stringdist()` function from the stringdist package. Several metrics can be computed. We use the **restricted Damerau-Levenshtein distance**, which extends the generalized Levenshtein distance by calculating  not only insertions, deletions and substitutions, but also transpositions. In the stringdist package, this metric is called "optimal string alignment distance", and can be specified with `method = "osa"`. For comparison purposes, we also extract the **orginal Damerau-Levenshtein distance** (without the restriction) as well as the **generalized Levenshtein distance**, which computes insertions, deletions and substitutions, but not transpositions.
+
+We examine the following edit distance variables:  
+**edist1** = the raw MT (`raw.MT`) will be compared to its corresponding post-edited (P) text (`pre.rev.ver`).  
+**edist2** = the post-edited (P) or translated (T) text (`pre.rev.ver`) will be compared to its corresponding self-reviewed text (`sr.ver`).  
+
+
+## Comparing raw MT with post-edited MT (edist1)
+
+Although this section does not involve self-review data directly, the comparison is relevant to the self-review analysis because it provides information on how much of the machine translation otuput translators used in the post-editing tasks that preceded the self-review. This comparison can also tell us whether there are any differences in raw machine translation retention by language.
+
+First we select just the rows involving a post-editing task. We then compute edit distance between `raw.MT` and `pre.rev.ver` and finally aggregate the results by language to assess any differences. The highest the edit distance, the more edits were performed during the post-editing task.
+
+```{r}
+# Subsetting data
+
+MT_subset <- subset(edist.df, tasktype =="P")
+
+
+MT_subset$edist1_rdl <- stringdist(MT_subset$raw.MT, MT_subset$pre.rev.ver, method = "osa")
+MT_subset$edist1_lv <- stringdist(MT_subset$raw.MT, MT_subset$pre.rev.ver, method = "lv")
+MT_subset$edist1_dl <- stringdist(MT_subset$raw.MT, MT_subset$pre.rev.ver, method = "dl")
+
+edist1_sum<- aggregate(MT_subset$edist1_rdl,
+               list(lang=MT_subset$lang), sum)
+edist1_sum
+
+edist1_mean<- aggregate(MT_subset$edist1_rdl,
+               list(lang=MT_subset$lang), mean)
+edist1_mean
+
+edist1_meanDE <- edist1_mean$x[1]
+edist1_meanES <- edist1_mean$x[2]
+edist1_meanRU <- edist1_mean$x[3]
+
+
+# Boxplot of self-review edit distance by pre-review task (P or T)
+ggplot(MT_subset, aes(x=lang,y=edist1_rdl,color=lang))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Edit distance between raw MT output and post-edited texts") + xlab("Language")
+
+print(glue("We only report results for the restricted Damerau-Levenshtein distance because the results did not change with the other two edit distance measures. The data shows that Russian was the language that triggered most changes during post-editing as a pre-review task, followed by German and Spanish. Russian translators made more than twice the number of edits in post-editing tasks preceding self-review ({edist1_meanRU} characters per segment on average) than both their German ({edist1_meanDE} per segment) and Spanish colleagues ({edist1_meanES} per segment). This finding might suggest a different underlying level of machine translation quality for Russian, which is not uncommon for this relatively under-resourced language."))
+
+```
+
+## Compare pre-review and review tasks (edist2)
+
+Our main variable of interest in the modelling was pre-review task, i.e. whether the self-review came after translation (T) or post-editing (P). Here we compare the edist2 to check how much of the pre-review text (`pre.rev.ver`) was retained during self-review.   
+
+
+```{r}
+# Computing edit distance:
+
+edist.df$edist2_rdl <- stringdist(edist.df$pre.rev.ver, edist.df$sr.ver, method = "osa")
+edist.df$edist2_lv <- stringdist(edist.df$pre.rev.ver, edist.df$sr.ver, method = "lv")
+edist.df$edist2_dl <- stringdist(edist.df$pre.rev.ver, edist.df$sr.ver, method = "dl")
+
+summary(edist.df$edist2_rdl)
+no_edits <- nrow(edist.df[edist.df$edist2_rdl == 0, ])
+
+# Summarising self-review edit distance by pre-review task (P or T)
+
+edist2_sum<- aggregate(edist.df$edist2_rdl,
+               list(tasktype=edist.df$tasktype), sum)
+edist2_sum
+
+edist2_mean<- aggregate(edist.df$edist2_rdl,
+               list(tasktype=edist.df$tasktype), mean)
+edist2_mean
+
+edist2_meanP <- edist2_mean$x[1]
+edist2_meanT <- edist2_mean$x[2]
+
+
+# Boxplot of self-review edit distance by pre-review task (P or T)
+ggplot(edist.df, aes(x=tasktype,y=edist2_rdl,color=tasktype))+geom_boxplot()+scale_colour_manual(values=cbPalette) + ylab("Edit distance between pre- and post-self-review texts")
+
+print(glue("The summary statistics show that in {no_edits} segments, translators did not perform any changes during self-review (i.e. the edit distance was zero). This means that in most cases (more than half of the segments), translators deemed the pre-review text to be fit for purpose. Translators appear to make more edits when self-reviewing after translation ({edist2_meanT} characters per segment on average) than after post-editing ({edist2_meanP} characters). This difference is very small, however, as shown in the boxplot. The difference is not borne out by the behavioural analysis presented above either, where the effect of pre-review task on self-review duration and keystrokes was insignificant."))
+
+```
+
+
+## End of document
+
