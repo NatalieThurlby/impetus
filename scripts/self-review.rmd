@@ -39,37 +39,48 @@ library(car)
 library(stringdist)
 library(readr)
 library(doBy)
+library(lubridate)
 ```
 
 # The study and the dataset
 
-This study looks at the process of reviewing one's own translations. We are interested in how editing machine translation v. drafting the translation from scratch might change a subsequent self-review step.
+This study looks at the process of reviewing one's own translations. 
+We are interested in how editing machine translation versus drafting the translation from scratch might change a subsequent self-review step.
 
-The study had 48 participants and 60 segments that were translated from English into three target languages: Spanish (ES), German (DE) and Russian (RU). A **segment** is the unit of translation in all major CAT (computer-assisted translation) software and usually corresponds to a sentence. The segments derived from four text excerpts:
+The study had 48 participants and 60 segments that were translated from English into three target languages: Spanish (ES), German (DE) and Russian (RU). 
+A **segment** is the unit of translation in all major CAT (computer-assisted translation) software and usually corresponds to a sentence. 
+The segments derived from four text excerpts:
+- Text 1: 14 segments (no. 1-14)  
+- Text 2: 17 segments (no. 15-31)  
+- Text 3: 13 segments (no. 32-44)  
+- Text 4: 16 segments (no. 45-60)  
 
-Text 1: 14 segments (no. 1-14)  
-Text 2: 17 segments (no. 15-31)  
-Text 3: 13 segments (no. 32-44)  
-Text 4: 16 segments (no. 45-60)  
+All texts were extracted from the same document, a government paper on transport energy. 
+The overall study includes two factors of interest:
+- from-scratch translation (`T`) v post-editing of machine translation (`P`)
+- separate self-review (`R`) v no separate self-review
 
-All texts were extracted from the same document, a government paper on transport energy. The overall study includes two factors of interest:
+Each participant worked on all four texts, but in different conditions. 
+In total, there were six tasks per participant: two from-scratch translation (`T`), two post-editing (`P`) and two self-review (`R`) tasks. 
+We counterbalanced the order of presentation of texts and conditions over participants in a Latin square design. 
+Our self-review tasks constituted a separate step in the workflow where we sent for self-review the text translators had delivered in an immediately preceding `T` or `P` task. 
+We sent self-review tasks to translators one day after the preceding task had been delivered (in two cases this interval was just under 24 hours: `P2_R1_5` and `P8_R4_2`). 
+The procedure above was replicated across the three target languages, with 16 translators per language.
 
-- from-scratch translation (T) v post-editing of machine translation (P)
-- separate self-review (R) v no separate self-review
-
-Each participant worked on all four texts, but in different conditions. In total, there were six tasks per participant: two from-scratch translation (T), two post-editing (P) and two self-review (R) tasks. We counterbalanced the order of presentation of texts and conditions over participants in a Latin square design. Our self-review tasks consituted a separate step in the workflow where we sent for self-review the text translators had delivered in an immediately preceding T or P task. We sent self-review tasks to translators one day after the preceding task had been delivered (in two cases this interval was just under 24 hours: P2_R1_5 and P8_R4_2). The procedure above was replicated across the three target languages, with 16 translators per language.
-
-In task-participant notations like **"P2_R1_5"**, the first cluster (e.g. P2) always indicates participant number, the middle one the type of task and the text (e.g. R1 = self-review of text 1), and the last number is task order (e.g. task 5 of 6).
+In task-participant notations like **`P2_R1_5`**, the first cluster (e.g. `P2`) always indicates participant number, the middle one the type of task and the text (e.g. `R1` = self-review of text 1), and the last number is task order (e.g. task `5` of 6).
 
 
-Here we analyse just the tasks where translators self-reviewed their work (R), which is a subset of our master dataset.
+Here we analyse just the tasks where translators self-reviewed their work (`R`), which is a subset of our master dataset.
 
-In most experiments in Translation Studies and Machine Translation, data analysis is carried out at the segment level. Here we adopt a more granular approach by collecting and analysing the data at the segment visit level, which retains the sequence and frequency with which participants visited each segment. This makes any within-task learning and fatigue effects easier to model.
+In most experiments in Translation Studies and Machine Translation, data analysis is carried out at the segment level.
+[//]: # (TODO: define segment)
+Here we adopt a more granular approach by collecting and analysing the data at the segment visit level, which retains the sequence and frequency with which participants visited each segment. 
+This makes any within-task learning and fatigue effects easier to model.
 
-First, we import and explore the visit-level dataset for analysis. 
+First, we import and explore the visit-level dataset for analysis.
 
 ```{r, eval=FALSE}
-reviewdf <- read.csv("reviewdf_complete.csv", header=T, sep=",", stringsAsFactors = T)
+reviewdf <- read.csv("../data/reviewdf_complete.csv", header=T, sep=",", stringsAsFactors = T)
 
 glimpse(reviewdf)
 names(reviewdf)
@@ -78,35 +89,40 @@ str(reviewdf)
 ```
 
 
-The self-review data has 2494 observations and 26 variables. Since the present dataset has just the self-review tasks, all instances of the "task.type" variable (originally "T", "P" and "R") = "R". 
+The self-review data has 2494 observations and 26 variables.
+Since the present dataset has just the self-review tasks, all instances of the `task.type` variable (originally `T`, `P` and `R`) = `R`. 
 
 # Errors and data exclusions
 
-Data collection errors forced us to exclude spurious data points from the analysis. This was required in relation to two categories of errors: when participants did not follow the experiment instructions (participant errors) and when there were glitches with 'Qualitivity', the data collection tool used in the study (recording errors), which is a plugin for translation software Trados Studio.
+Data collection errors forced us to exclude spurious data points from the analysis. 
+This was required in relation to two categories of errors: when participants did not follow the experiment instructions (participant errors) and when there were glitches with 'Qualitivity', the data collection tool used in the study (recording errors), which is a plugin for translation software Trados Studio.
 
-##Participant errors
+## Participant errors
 
 We excluded data/tasks because of participant errors only if: 
+1. the task was done **in two sittings** rather than one (e.g. half today, half tomorrow); 
+2. the participant **copy-pasted** large chunks of text (one or more sentences, not single words or phrases) from an external source (e.g. Google Translate, Deep L or similar) in a systematic way at the beginning of the translation process in T tasks;  
+3. the reports submitted were for the **wrong task**.
 
-(1) the task was done **in two sittings** rather than one (e.g. half today, half tomorrow); 
-(2) the participant **copy-pasted** large chunks of text (one or more sentences, not single words or phrases) from an external source (e.g. Google Translate, Deep L or similar) in a systematic way at the beginning of the translation process in T tasks;  
-(3) the reports submitted were for the **wrong task**.
+Disregarding these cases is required either because the data was unavailable to begin with (e.g. 3) or because the error is expected to change the nature of the task (1-2). 
+Working on the same text twice in two sittings (1) is different from doing the task "for the first time" and would impinge on the reliability of the data. 
+In relation to (2), in some instances there was evidence of machine translation use in the task condition where participants were supposed to translate the text from scratch. 
+Excluding these cases is required because this risks eliminating the difference between from-scratch translation (`T`) and post-editing (`P`), two conditions of interest in the study. 
+We only excluded these cases where, in the `T` condition, full target-language sentences were copy-pasted from an external source and subsequently edited and where this happened more than once in the same task. 
+Exclusions linked to errors 1-3 are outlined below.
 
-Disregaring these cases is required either because the data was unavailable to begin with (e.g. 3) or because the error is expected to change the nature of the task (1-2). Working on the same text twice in two sittings (1) is different from doing the task 'for the first time' and would impinge on the reliability of the data. In relation to (2), in some instances there was evidence of machine translation use in the task condition where participants were supposed to translate the text from scratch. Excluding these cases is required because this risks eliminating the difference between from-scratch translation (T) and post-editing (P), two conditions of interest in the study. We only excluded these cases where, in the T condition, full target-language sentences were copy-pasted from an external source and subsequently edited and where this happened more than once in the same task. Exclusions linked to errors 1-3 are outlined below.
+### Error (1)
 
-
-###Error (1)
-
-We exclude one self-review task from **P22** ("P22_R2_2") because of error (1)
+We exclude one self-review task from **`P22`** (`P22_R2_2`) because of error (1).
 
 ```{r}
 nrow(reviewdf[reviewdf$file.id == "P22_R2_2.csv", ]) # 16 rows of data to exclude
 
-reviewdf<-subset(reviewdf, file.id != "P22_R2_2.csv")
+reviewdf <- subset(reviewdf, file.id != "P22_R2_2.csv")
 ```
 
 
-###Error (2)
+### Error (2)
 
 We exclude five tasks from five different participants because of error (2)
 
@@ -119,9 +135,9 @@ nrow(reviewdf[reviewdf$file.id == "P22_R4_6.csv", ]) # 8 rows to exclude
 reviewdf<-subset(reviewdf, file.id != "P4_R3_5.csv" & file.id != "P19_R2_5.csv" & file.id != "P48_R4_2.csv" & file.id != "P17_R4_5.csv" & file.id != "P22_R4_6.csv")
 ```
 
-**NOTE**: Because both R tasks for P22 have to be excluded , this results in 47 rather than 48 participants for analysis.
+> **NOTE**: Because both `R` tasks for `P22` have to be excluded, this results in 47 rather than 48 participants for analysis.
 
-###Error (3)
+### Error (3)
 
 We exclude one review task from **P20** ("P20_R1_3") because of error (3)
 
@@ -134,9 +150,10 @@ new_nrow <- nrow(reviewdf)
 print(glue("After the above exclusions, {new_nrow} observations remain"))
 ```
 
-##Recording errors
+## Recording errors
 
-We exclude data points where **record.duration = 0**. These records are generated automatically by Qualitivity but they contain no data, so they were eliminated.
+We exclude data points where **`record.duration` = 0**. 
+These records are generated automatically by Qualitivity but they contain no data, so they were eliminated.
 
 ```{r}
 nrow(reviewdf[reviewdf$record.duration == 0, ])  # 7 rows of data to exclude
@@ -149,14 +166,20 @@ print(glue("After the above exclusions, {new_nrow} observations remain"))
 
 We check for further potentially problematic data points below.
 
-First we check for all rows where **record.duration > 300,000** and **keystrokes = 0**. These are instances where a participant stays inside a segment for more than 5 minutes (300,000 milliseconds) but there is no typing activity. If the timer was set up according to the study instructions, then Qualitivity should pause the timer after 5 minutes of inactivity, where 'inactivity' is the absence of any typing or clicking. Any inactivity periods longer than 5 minutes in the data are therefore either due to (a) a Qualitivity glitch/bug or (b) failing to set up Qualititvity as per the study instructions. 
+First we check for all rows where **`record.duration` > 300,000** and **`keystrokes` = 0**. 
+These are instances where a participant stays inside a segment for more than 5 minutes (300,000 milliseconds), but there is no typing activity. 
+If the timer was set up according to the study instructions, then Qualitivity should pause the timer after 5 minutes of inactivity, where "inactivity" is the absence of any typing or clicking. 
+Any inactivity periods longer than 5 minutes in the data are therefore either due to (a) a Qualitivity glitch/bug or (b) failing to set up Qualititvity as per the study instructions. 
 
 ```{r}
 nrow_inactive <- nrow(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ])
-max_inactive <- max(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ]$record.duration)
-mean_inactive <- mean(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ]$record.duration)
+max_inactive <- seconds_to_period(max(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ]$record.duration))
+mean_inactive <- seconds_to_period(mean(reviewdf[reviewdf$keystrokes == 0 & reviewdf$record.duration > 300000, ]$record.duration))
 
-print(glue("We find {nrow_inactive} data points corresponding to more than 5 minutes of inactivity. The longest single period of inactivty among these had {max_inactive/60000} minutes. The mean period of inactivity for records above 5 minutes is {mean_inactive/60000} minutes"))
+print(glue(
+  "We find {nrow_inactive} data points corresponding to more than 5 minutes of inactivity.
+  The longest single period of inactivty among these had {minute(max_inactive)} minutes and {second(max_inactive)} seconds. 
+  The mean period of inactivity for records above 5 minutes is {minute(mean_inactive) minutes and {second(mean_inactive)} seconds."))
 
 ```
 Although long periods of inactivity could correspond to task breaks, we did not deem these cases long enough to warrant excluding the data. Translators could be carrying out research for passages that were difficult to translate, for instance. In the absence of stronger evidence that the task had indeed been interrupted in these cases, we adopt an inclusive rather than an exclusive approach and retain these data points. 
@@ -170,7 +193,7 @@ print(glue("The dataset contains {system_records} records artificially generated
 ```
 We retain these artificially generated records because they contain some temporal information about the task, even if minimal. This is in line with our inclusive approach to the data inspection. 
 
-##Other observations or cases to note
+## Other observations or cases to note
 
 In self-review tasks, although translators are expected to read through the whole text to implement further improvements where possible, they might not make changes to all segments, but only to those that still contain errors or can be further improved. What creates a record (row of data) in a Qualitivity report is clicking inside a segment (or pressing CTRL + ENTER which 'confirms' the current segment and moves the cursor to the next), so if a translator reads a segment but does not click on it or confirm it, no record for that segment will appear in the report.  In most cases, therefore, missing segments reflected the participants' usual Trados Studio use behaviour. Some participants only confirmed segments during self-review in cases where they had edited the segment.  In other cases, participants failed to confirm just one or two segments during self-review, usually when these were repetitions. We therefore do not exclude any data purely on the basis that some text segments had not been recorded.
 
