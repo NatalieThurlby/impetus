@@ -18,17 +18,54 @@ The statistical power of a model is key to to the strength of a statement about 
 It should be clear, therefore, why a power analysis is helpful in interpreting our (negative) results.
 To calculate the power of a complex model (such as a hierarchical model), we must simulate data with the properties of our real data, then perform the exact analysis we performed many times to understand the variation due to sampling.
 
+```{r}
+n_sims <- 100
+smallest_cohens_d <- 0.2
+```
+
 ## Power-analysis: by-visit model
+Read in by-visit data processed in `self-review.rmd` and simulate a base data based on that data
+```{r}
+visit_df <- read.csv('../data/by_visit.csv')
+n_data_points <- nrow(visit_df)
+
+visit_df.sim <- tibble(
+  duration = rnorm(n_data_points, mean=mean(visit_df$record.dur.log), sd=sd(visit_df$record.dur.log)),
+  review_task = visit_df$pre.rev.task,
+  lang = visit_df$lang,
+  segment_length = rnorm(n_data_points, mean=mean(visit_df$ST.segm.char_scaled), sd=sd(visit_df$ST.segm.char_scaled)),
+  record_id = rnorm(n_data_points, mean=mean(visit_df$record.id_scaled), sd=sd(visit_df$record.id_scaled)),
+  subj = visit_df$subj,
+  seg_id = visit_df$unique.segm.id_fctr
+)
+```
 
 ### Power-analysis: keystroke by-visit
 
 ### Power-analysis: duration by-visit
+
+```{r}
+#set.seed(1)  # Makes the answer the same every time for reproducibility
+
+mod7_sim <- lmerTest::lmer(duration ~ review_task + lang + segment_length + record_id + (1 + review_task + segment_length + record_id| subj) + (1|seg_id), data=visit_df.sim)
+
+fixef(mod7_sim)['review_taskT'] <- smallest_cohens_d
+powerSim(mod7_sim, nsim = n_sims)
+```
+
+
+```{r}
+non_singular <- lmer(duration ~ review_task + (1| subj), data=simulated.df)
+fixef(non_singular)['review_taskT'] <- 0.2
+powerSim(non_singular, nsim = 100)
+```
 
 ## By-segment model
 Read in by-segment data created in `self-review.Rmd`.
 ```{r}
 seg_df <- read.csv('../data/by_segment.csv')
 ```
+
 
 ### Power-analysis: keystroke by-segment
 
