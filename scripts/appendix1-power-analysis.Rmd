@@ -1,0 +1,42 @@
+---
+title: "Appendix 1: Power Analysis"
+author: "Natalie Thurlby"
+date: "11/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(pwr)
+library(simr)
+library(lmerTest)
+```
+
+## Introduction
+The statistical power of a model is key to to the strength of a statement about a negative result: the higher your statistical power, the less chance of missing a true effect.
+It should be clear, therefore, why a power analysis is helpful in interpreting our (negative) results.
+To calculate the power of a complex model (such as a hierarchical model), we must simulate data with the properties of our real data, then perform the exact analysis we performed many times to understand the variation due to sampling.
+
+## Power-analysis: by-visit model
+
+### Power-analysis: keystroke by-visit
+
+### Power-analysis: duration by-visit
+
+## By-segment model
+Read in by-segment data created in `self-review.Rmd`.
+```{r}
+seg_df <- read.csv('../data/by_segment.csv')
+```
+
+### Power-analysis: keystroke by-segment
+
+### Power-analysis: duration by-segment
+```{r}
+
+byseg.dur.mod7<- lmerTest::lmer(SR.record.dur.log ~ pre.rev.task + lang + ST.segm.char_scaled + TP.record.dur_scaled + TP.ks_scaled +
+              (1 + pre.rev.task + ST.segm.char_scaled|subj) + (1|unique.segm.id_fctr), data = seg_df)
+
+summary(byseg.dur.mod7)
+```
